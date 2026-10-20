@@ -75,7 +75,7 @@ class GossipController(
         if (public != null) {
             val now = System.currentTimeMillis()
             gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
-            backfillLog(gigId, localGig.id, authorScope, identity, gigDate, createdAt)
+            backfillLog(gigId, authorScope, identity, gigDate, createdAt)
         }
     }
 
@@ -84,7 +84,7 @@ class GossipController(
      * later edit would need. Only lines not already published, so a repeat check-in publishes
      * nothing twice.
      */
-    private suspend fun backfillLog(gigId: String, localId: String, authorScope: String,
+    private suspend fun backfillLog(gigId: String, authorScope: String,
                                     identity: GigIdentity, gigDate: LocalDate, checkedIn: Instant) {
         val log = timelines.load().logs()[gigId] ?: return
         val nightEnd = gossipExpiry(gigDate)

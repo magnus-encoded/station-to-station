@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The gossip channel: the one place that holds the **Contact** list, the ledger and this
@@ -89,9 +90,27 @@ actor GossipChannel {
     private var onPresence: (@Sendable ([String: Date], Set<String>) -> Void)?
     func observePresence(_ handler: @escaping @Sendable ([String: Date], Set<String>) -> Void) { onPresence = handler }
 
-    init(ledger: GossipLedger = GossipLedger(), timeline: TimelineStore = TimelineStore()) {
+    /// The Gig's signing key and the manual-stop moment are injected so a test can run the
+    /// check-in path without a Keychain; production reads `GigIdentity` and the transport.
+    private let signingKey: @Sendable (String) -> P256.Signing.PrivateKey?
+    private let stoppedAt: @Sendable () -> Int64
+    /// Backfills in flight, keyed by scope: the diff and its publication must not interleave.
+    private var backfills: [String: Task<Void, Never>] = [:]
+
+    init(ledger: GossipLedger = GossipLedger(), timeline: TimelineStore = TimelineStore(),
+         signingKey: @escaping @Sendable (String) -> P256.Signing.PrivateKey? = { GigIdentity.key(scope: $0) },
+         stoppedAt: @escaping @Sendable () -> Int64 = { GossipTransport.shared.stoppedAt }) {
         self.ledger = ledger
         self.timeline = timeline
+        self.signingKey = signingKey
+        self.stoppedAt = stoppedAt
+    }
+
+    private func sign(scope: String, _ payload: Data) -> Data? {
+        try? signingKey(scope)?.signature(for: payload).derRepresentation
+    }
+    private func publicKey(scope: String) -> String? {
+        signingKey(scope)?.publicKey.derRepresentation.base64EncodedString()
     }
 
     /// Watch this device's witnessed check-ins, and answer once with what is already known.
@@ -153,17 +172,16 @@ actor GossipChannel {
     @discardableResult
     func checkedIn(gigId: String, localGigId: String, gigDate: String?, now: Date = Date()) async -> Bool {
         guard let scope = await ledger.authorScope(localGigId: localGigId) else { return false }
-        if GigIdentity.key(scope: scope) != nil,
-           let author = GigIdentity.publicKeyBase64(scope: scope) {
+        if let author = publicKey(scope: scope) {
             let seconds = Int64(now.timeIntervalSince1970 * 1000)
             let expiry = Int64((gossipExpiry(gigDate: gigDate ?? "")?.timeIntervalSince1970 ?? now.timeIntervalSince1970 + 86400) * 1000)
             var fact = GossipEnvelope(gigId: gigId, scope: scope, author: author,
                                       createdAt: seconds, expiresAt: expiry,
                                       kind: "request")
             fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
-            if let signed = fact.signed({ GigIdentity.sign(scope: scope, $0) }) {
+            if let signed = fact.signed({ sign(scope: scope, $0) }) {
                 let accepted = await ledger.receivePublic([signed], from: "", now: seconds, local: true)
-                await backfillLog(gigId: gigId, localGigId: localGigId, scope: scope, author: author,
+                await serializedBackfill(gigId: gigId, localGigId: localGigId, scope: scope, author: author,
                                   nightEnd: gossipExpiry(gigDate: gigDate ?? ""), now: now)
                 return accepted == 1
             }
@@ -174,13 +192,26 @@ actor GossipChannel {
     /// Lines written before the check-in go out with it, inside the same participation window
     /// a later edit would need. Only lines this author has not already published, so a repeat
     /// check-in publishes nothing twice.
+    private func serializedBackfill(gigId: String, localGigId: String, scope: String, author: String,
+                                    nightEnd: Date?, now: Date) async {
+        let previous = backfills[scope]
+        let task = Task {
+            await previous?.value
+            await self.backfillLog(gigId: gigId, localGigId: localGigId, scope: scope, author: author,
+                                   nightEnd: nightEnd, now: now)
+        }
+        backfills[scope] = task
+        await task.value
+        if backfills[scope] == task { backfills[scope] = nil }
+    }
+
     private func backfillLog(gigId: String, localGigId: String, scope: String, author: String,
                              nightEnd: Date?, now: Date) async {
         guard let nightEnd else { return }
         let log = await timeline.log(setlistId: localGigId)
         guard let until = gossipParticipationUntil(checkedInAt: Int64(now.timeIntervalSince1970 * 1000),
                 closed: log.closed, completedAt: log.completedAt, nightEnd: nightEnd,
-                stoppedAt: GossipTransport.shared.stoppedAt), now < until else { return }
+                stoppedAt: stoppedAt()), now < until else { return }
         let state = await ledger.publicSnapshot(now: Int64(now.timeIntervalSince1970 * 1000))
         let changes = state.logBackfill(log, author: author, scope: scope)
         await publishLog(gigId: gigId, localGigId: localGigId, expiry: nightEnd, changes: changes, now: now)
@@ -219,7 +250,7 @@ actor GossipChannel {
 
     func publishLog(gigId: String, localGigId: String, expiry: Date, changes: [Int: String], now: Date = Date()) async {
         guard !changes.isEmpty, let scope = await ledger.authorScope(localGigId: localGigId),
-              let author = GigIdentity.publicKeyBase64(scope: scope) else { return }
+              let author = publicKey(scope: scope) else { return }
         let millis = Int64(now.timeIntervalSince1970 * 1000)
         let state = await ledger.publicSnapshot(now: millis)
         let previous = state.facts.values.filter { $0.author == author }
@@ -229,7 +260,7 @@ actor GossipChannel {
             var fact = GossipEnvelope(gigId: gigId, formerIds: former, scope: scope, author: author,
                 createdAt: revision, expiresAt: Int64(expiry.timeIntervalSince1970 * 1000), kind: "log", line: line, text: text)
             fact.attribution = GigIdentity.attribution(scope: scope, author: author) ?? ""
-            return fact.signed { GigIdentity.sign(scope: scope, $0) }
+            return fact.signed { sign(scope: scope, $0) }
         }
         _ = await ledger.receivePublic(facts, from: "", now: millis, local: true)
         await publishWitnessed(now: now)

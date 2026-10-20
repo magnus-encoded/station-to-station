@@ -22,17 +22,6 @@ final class GossipLifecycleTests: XCTestCase {
     }
 
     func testCheckingInPublishesTheExistingLogOnceOnlyInsideParticipation() async throws {
-        #if targetEnvironment(simulator)
-        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                    kSecAttrService as String: "station-to-station.gossip-test-probe",
-                                    kSecAttrAccount as String: UUID().uuidString,
-                                    kSecValueData as String: Data([1])]
-        let status = SecItemAdd(probe as CFDictionary, nil)
-        if status == errSecMissingEntitlement {
-            throw XCTSkip("Simulator test host has no Keychain entitlement (-34018)")
-        }
-        SecItemDelete(probe as CFDictionary)
-        #endif
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let gossipFile = file.appendingPathExtension("gossip")
         defer {
@@ -41,7 +30,8 @@ final class GossipLifecycleTests: XCTestCase {
         }
         let store = TimelineStore(file: file)
         let ledger = GossipLedger(file: gossipFile)
-        let channel = GossipChannel(ledger: ledger, timeline: store)
+        let key = P256.Signing.PrivateKey()
+        let channel = GossipChannel(ledger: ledger, timeline: store, signingKey: { _ in key }, stoppedAt: { 0 })
         let date = "04-09-2026"
         let end = try XCTUnwrap(gossipExpiry(gigDate: date))
         let now = end.addingTimeInterval(-3600)
@@ -60,6 +50,32 @@ final class GossipLifecycleTests: XCTestCase {
         await channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: end)
         let expired = await ledger.publicSnapshot(now: Int64(end.timeIntervalSince1970 * 1000))
         XCTAssertEqual(Set(expired.facts.values.filter { $0.kind == "log" }.map(\.id)), Set(logs.map(\.id)))
+    }
+
+    func testOverlappingCheckInsPublishTheLogOnce() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let gossipFile = file.appendingPathExtension("gossip")
+        defer {
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.removeItem(at: gossipFile)
+        }
+        let store = TimelineStore(file: file)
+        let ledger = GossipLedger(file: gossipFile)
+        let key = P256.Signing.PrivateKey()
+        let channel = GossipChannel(ledger: ledger, timeline: store, signingKey: { _ in key }, stoppedAt: { 0 })
+        let date = "04-09-2026"
+        let end = try XCTUnwrap(gossipExpiry(gigDate: date))
+        let now = end.addingTimeInterval(-3600)
+        let millis = Int64(now.timeIntervalSince1970 * 1000)
+        let id = await store.createLocalGig(date: date, artist: "Band", venue: "Room")
+        await store.saveLog(setlistId: id, log: StoredLog().adding("Opener").adding("Encore"))
+        await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "checked_in", checkedInAt: millis))
+        async let a = channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now)
+        async let b = channel.checkedIn(gigId: id, localGigId: id, gigDate: date, now: now)
+        _ = await (a, b)
+        let state = await ledger.publicSnapshot(now: millis + 1000)
+        let logs = state.facts.values.filter { $0.kind == "log" }
+        XCTAssertEqual(logs.sorted { $0.line < $1.line }.map(\.text), ["Opener", "Encore"])
     }
 
     func testEndedGigStopsSendingWhileAnotherKeepsRadioOn() async throws {
