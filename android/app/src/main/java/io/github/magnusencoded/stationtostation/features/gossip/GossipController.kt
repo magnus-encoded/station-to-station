@@ -9,6 +9,7 @@ import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveGigId
 import io.github.magnusencoded.stationtostation.data.gossip.gossipActiveUntil
 import io.github.magnusencoded.stationtostation.data.gossip.gossipExpiry
 import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationEnds
+import io.github.magnusencoded.stationtostation.data.gossip.gossipParticipationUntil
 import io.github.magnusencoded.stationtostation.data.gossip.gossipStoppedGigs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -74,6 +75,26 @@ class GossipController(
         if (public != null) {
             val now = System.currentTimeMillis()
             gossip.updatePublic(now) { it.receive(public, "", now, local = true) }
+            backfillLog(gigId, authorScope, identity, gigDate, createdAt)
+        }
+    }
+
+    /**
+     * Lines written before the check-in go out with it, inside the same participation window a
+     * later edit would need. Only lines not already published, so a repeat check-in publishes
+     * nothing twice.
+     */
+    private suspend fun backfillLog(gigId: String, authorScope: String,
+                                    identity: GigIdentity, gigDate: LocalDate, checkedIn: Instant) {
+        val log = timelines.load().logs()[gigId] ?: return
+        val nightEnd = gossipExpiry(gigDate)
+        val until = gossipParticipationUntil(checkedIn.toEpochMilli(), log.closed, log.completedAt,
+            nightEnd, gossip.stoppedAt()) ?: return
+        val now = System.currentTimeMillis()
+        if (now >= until.toEpochMilli()) return
+        gossip.updatePublic(now) { state ->
+            val changes = state.logBackfill(log, identity.publicKey(), authorScope)
+            if (changes.isNotEmpty()) state.receiveLog(gigId, authorScope, identity, changes, nightEnd.toEpochMilli(), now)
         }
     }
 

@@ -155,6 +155,21 @@ struct SeenWith: Equatable {
 }
 
 struct PublicGossipState: Codable {
+    /// The **Log** lines this author has not yet published as they stand: new or changed
+    /// lines with their text, lines published but since removed as "". Numbers are the
+    /// **Log**'s stable line numbers, so gaps survive.
+    func logBackfill(_ log: StoredLog, author: String, scope: String) -> [Int: String] {
+        var published: [Int: GossipEnvelope] = [:]
+        for fact in facts.values where fact.kind == "log" && fact.author == author && fact.scope == scope {
+            if let seen = published[fact.line], seen.createdAt >= fact.createdAt { continue }
+            published[fact.line] = fact
+        }
+        let current = Dictionary(uniqueKeysWithValues: log.songs.indices.map { (log.lineNumberAt($0), log.songs[$0]) })
+        var changes = current.filter { published[$0.key]?.text != $0.value }
+        for (line, fact) in published where current[line] == nil && !fact.text.isEmpty { changes[line] = "" }
+        return changes
+    }
+
     var facts: [String: GossipEnvelope] = [:]
     var seen: [String: Int64] = [:]
     var held: [String: PublicHeld] = [:]
