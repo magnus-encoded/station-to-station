@@ -153,15 +153,7 @@ struct GigView: View {
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
                             ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
-                                if let base = row.base {
-                                    wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
-                                } else {
-                                    Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
-                                        .padding(.leading, 50).padding(.trailing, 24).padding(.top, 8)
-                                }
-                                ForEach(row.facts, id: \.id) { fact in
-                                    gossipSubLine(fact, rowTitle: row.base == nil ? nil : row.text)
-                                }
+                                gossipRowView(row, woven: woven, rows: rows, log: log, show: show)
                             }
                         }
                         // My own Log (#169), under the set and never taken away — it
@@ -634,6 +626,27 @@ struct GigView: View {
         }
     }
 
+    @ViewBuilder
+    private func gossipRowView(_ row: GossipLogRow, woven: [WovenSong], rows: [EventRow],
+                               log: StoredLog, show: FmSetlist) -> some View {
+        if let base = row.base {
+            wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
+        } else {
+            Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
+                .padding(.leading, 50).padding(.trailing, 24).padding(.top, 8)
+        }
+        ForEach(row.facts, id: \.id) { fact in
+            gossipSubLine(fact, rowTitle: row.base == nil ? nil : row.text)
+        }
+    }
+
+    private func laneIndex(ofKey key: String?, in friends: [Friend]) -> Int? {
+        guard let key else { return nil }
+        let wanted = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lanes: [Friend] = Array(friends.reversed())
+        return lanes.firstIndex { ($0.publicKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == wanted }
+    }
+
     /// A received line under my row: smaller than my rows, starting at the title's x. The title is
     /// repeated only where it differs from `rowTitle`. A **Contact** is drawn in their **Lane colour**,
     /// a stranger by short id; long-press blocks the author.
@@ -641,7 +654,7 @@ struct GigView: View {
         let friends = model.state.friends
         let name = model.state.publicGossip.attributedName(fact.author, live: contactNamesOf(friends))
         let key = model.state.publicGossip.recognition[fact.author]
-        let lane = key.flatMap { key in friends.reversed().firstIndex { $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == key.trimmingCharacters(in: .whitespacesAndNewlines) } }
+        let lane = laneIndex(ofKey: key, in: friends)
         let who = name ?? String(keyFingerprint(fact.author).prefix(6))
         let agrees = rowTitle.map { sameSong($0, fact.text) } ?? false
         return Text(agrees ? who : "\(fact.text) · \(who)")
