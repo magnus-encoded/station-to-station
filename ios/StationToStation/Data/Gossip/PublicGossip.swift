@@ -697,25 +697,105 @@ func gossipLogChanges(before: StoredLog, after: StoredLog) -> [Int: String] {
     })
 }
 
-
+/// A display row. `base` is my row, or nil for a received line with no row of mine; `facts` are
+/// the received lines placed on it, drawn as sub-lines. Alignment never writes into a local Log.
 struct GossipLogRow {
     var base: Int?
     var text: String?
     var facts: [GossipEnvelope] = []
 }
 
-/// Align complete author sequences, keeping reprises and the source of each observation.
+/// Places each author's received **Log** lines among `base`, my rows top to bottom (empty is a
+/// **Gap**, nil a non-song row). Authors are woven one at a time over the rows already woven.
+///
+/// Same title is an anchor (score 2), my Gap against any line scores 1, other pairs 0. Lines
+/// between anchors go to the row at the same distance from the nearest anchor, measured in the
+/// author's line numbers, never by rank among the lines received: bottom-up before the first
+/// anchor, row by row between two, top-down after the last or from line 0 with none. A line with
+/// no row there becomes a row of its own. Lines never received stay holes; a tombstone (empty text)
+/// removes its number and later numbers collapse. My side is counted by row position.
 func weaveGossip(base: [String?], facts: [GossipEnvelope]) -> [GossipLogRow] {
     var rows = base.enumerated().map { GossipLogRow(base: $0.offset, text: $0.element) }
     let authors = Dictionary(grouping: facts.filter { $0.kind == "log" }, by: { $0.author + "\n" + $0.scope })
     for author in authors.keys.sorted() {
-        let source = authors[author]!.sorted { $0.line < $1.line }
-        rows = weaveSetlist(published: rows.map(\.text), logged: source.map(\.text)).map { match in
-            let previous = match.published.map { rows[$0] }
-            let fact = match.logged.map { source[$0] }
-            return GossipLogRow(base: previous?.base, text: previous?.text ?? fact?.text,
-                facts: (previous?.facts ?? []) + (fact.map { [$0] } ?? []))
-        }
+        rows = placeAuthor(rows, versions: authors[author]!)
     }
     return rows
+}
+
+private func placeAuthor(_ rows: [GossipLogRow], versions: [GossipEnvelope]) -> [GossipLogRow] {
+    func newer(_ a: GossipEnvelope, than b: GossipEnvelope) -> Bool {
+        (a.createdAt, a.id, a.text) > (b.createdAt, b.id, b.text)
+    }
+    var latest: [Int: GossipEnvelope] = [:]
+    for fact in versions where latest[fact.line].map({ newer(fact, than: $0) }) ?? true {
+        latest[fact.line] = fact
+    }
+    let removed = latest.values.filter { $0.text.isEmpty }.map(\.line)
+    let lines: [(position: Int, fact: GossipEnvelope)] = latest.values
+        .filter { !$0.text.isEmpty }.sorted { $0.line < $1.line }
+        .map { fact in (fact.line - removed.filter { $0 < fact.line }.count, fact) }
+    if lines.isEmpty { return rows }
+
+    func score(_ row: GossipLogRow, _ fact: GossipEnvelope) -> Int {
+        guard let title = row.text else { return 0 }
+        if title.nilIfBlank != nil && sameSong(title, fact.text) { return 2 }
+        if row.base != nil && title.nilIfBlank == nil { return 1 }
+        return 0
+    }
+    var best = Array(repeating: Array(repeating: 0, count: lines.count + 1), count: rows.count + 1)
+    for r in stride(from: rows.count - 1, through: 0, by: -1) {
+        for k in stride(from: lines.count - 1, through: 0, by: -1) {
+            best[r][k] = max(best[r + 1][k], best[r][k + 1], best[r + 1][k + 1] + score(rows[r], lines[k].fact))
+        }
+    }
+    var anchors: [(row: Int, line: Int)] = []
+    var r = 0, k = 0
+    while r < rows.count && k < lines.count {
+        let s = score(rows[r], lines[k].fact)
+        if s > 0 && best[r][k] == best[r + 1][k + 1] + s {
+            if s == 2 { anchors.append((r, k)) }
+            r += 1; k += 1
+        } else if best[r][k] == best[r + 1][k] {
+            r += 1
+        } else {
+            k += 1
+        }
+    }
+
+    var onRow: [Int: [GossipEnvelope]] = [:]
+    var ownBefore: [Int: [GossipEnvelope]] = [:]
+    let anchorRowOfLine = Dictionary(uniqueKeysWithValues: anchors.map { ($0.line, $0.row) })
+    for (index, line) in lines.enumerated() {
+        if let row = anchorRowOfLine[index] { onRow[row, default: []].append(line.fact); continue }
+        let previous = anchors.last { lines[$0.line].position < line.position }
+        let next = anchors.first { lines[$0.line].position > line.position }
+        let bottomUp = previous == nil && next != nil
+        let target: Int
+        if let next, bottomUp {
+            target = next.row - (lines[next.line].position - line.position)
+        } else if let previous {
+            target = previous.row + (line.position - lines[previous.line].position)
+        } else {
+            target = line.position
+        }
+        let limit = next?.row ?? rows.count
+        if target >= 0 && target < limit {
+            onRow[target, default: []].append(line.fact)
+        } else if bottomUp {
+            ownBefore[0, default: []].append(line.fact)
+        } else {
+            ownBefore[limit, default: []].append(line.fact)
+        }
+    }
+    var result: [GossipLogRow] = []
+    for index in 0...rows.count {
+        for fact in ownBefore[index] ?? [] { result.append(GossipLogRow(base: nil, text: fact.text, facts: [fact])) }
+        if index < rows.count {
+            var row = rows[index]
+            row.facts += onRow[index] ?? []
+            result.append(row)
+        }
+    }
+    return result
 }
