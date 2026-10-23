@@ -1443,16 +1443,10 @@ private fun LazyListScope.setlistRows(
         }
     }
     itemsIndexed(gossipRows) { _, gossipRow ->
-        gossipRow.facts.forEach { fact ->
-            val name = publicGossip.attributedName(fact.author, contactNames) ?: "Nearby listener"
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("$name · gossip, experimental", color = Slate, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onBlock(fact.author) }) { Text("Block") }
-            }
-        }
         if (gossipRow.base == null) {
             Text(gossipRow.text?.ifBlank { "a song they couldn't name" }.orEmpty(), color = Ink,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                modifier = Modifier.padding(start = 50.dp, end = 20.dp, top = 8.dp))
+            gossipRow.facts.forEach { GossipSubLine(it, null, publicGossip, friends, contactNames, onBlock) }
         } else {
         val line = woven[gossipRow.base]
 
@@ -1524,7 +1518,39 @@ private fun LazyListScope.setlistRows(
                 }
             }
         }
+        gossipRow.facts.forEach { GossipSubLine(it, gossipRow.text, publicGossip, friends, contactNames, onBlock) }
     }
     }
+}
+
+/**
+ * A received line under my row: smaller than my rows, starting at the title's x. The title is
+ * repeated only where it differs from [rowTitle]. A **Contact** is drawn in their **Lane colour**,
+ * a stranger by short id; long-press blocks the author.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GossipSubLine(
+    fact: io.github.magnusencoded.stationtostation.data.gossip.GossipEnvelope,
+    rowTitle: String?,
+    publicGossip: io.github.magnusencoded.stationtostation.data.gossip.PublicGossipState,
+    friends: List<Friend>,
+    contactNames: Map<String, String>,
+    onBlock: (String) -> Unit,
+) {
+    val contactKey = publicGossip.recognition[fact.author]
+    val contact = contactKey?.let { key -> friends.firstOrNull { it.publicKey?.trim() == key.trim() } }
+    val who = publicGossip.attributedName(fact.author, contactNames)
+        ?: io.github.magnusencoded.stationtostation.data.keyFingerprint(fact.author).take(6)
+    val agrees = rowTitle != null && io.github.magnusencoded.stationtostation.data.sameSong(rowTitle, fact.text)
+    Text(
+        if (agrees) who else "${fact.text} · $who",
+        color = contact?.let { laneColourOf(it, friends) } ?: Slate,
+        fontSize = 12.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = {}, onLongClick = { onBlock(fact.author) })
+            .padding(start = 50.dp, end = 20.dp, bottom = 4.dp),
+    )
 }
 

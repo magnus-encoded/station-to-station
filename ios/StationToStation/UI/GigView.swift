@@ -153,14 +153,14 @@ struct GigView: View {
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
                             ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
-                                ForEach(row.facts, id: \.id) { fact in
-                                    gossipAttribution(fact)
-                                }
                                 if let base = row.base {
                                     wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
                                 } else {
                                     Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
-                                        .padding(.horizontal, 24).padding(.vertical, 8)
+                                        .padding(.leading, 50).padding(.trailing, 24).padding(.top, 8)
+                                }
+                                ForEach(row.facts, id: \.id) { fact in
+                                    gossipSubLine(fact, rowTitle: row.base == nil ? nil : row.text)
                                 }
                             }
                         }
@@ -634,16 +634,24 @@ struct GigView: View {
         }
     }
 
-    private func gossipAttribution(_ fact: GossipEnvelope) -> some View {
-        let name = model.state.publicGossip
-            .attributedName(fact.author, live: contactNamesOf(model.state.friends)) ?? "Nearby listener"
-        return HStack {
-            Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
-            Spacer()
-            Button("Block") { model.gossip.blockGossip(fact.author) }.font(.system(size: 11))
-                // Every row's Block reads alike without whose it is (#164).
-                .accessibilityLabel("Block \(name)")
-        }.padding(.horizontal, 24)
+    /// A received line under my row: smaller than my rows, starting at the title's x. The title is
+    /// repeated only where it differs from `rowTitle`. A **Contact** is drawn in their **Lane colour**,
+    /// a stranger by short id; long-press blocks the author.
+    private func gossipSubLine(_ fact: GossipEnvelope, rowTitle: String?) -> some View {
+        let friends = model.state.friends
+        let name = model.state.publicGossip.attributedName(fact.author, live: contactNamesOf(friends))
+        let key = model.state.publicGossip.recognition[fact.author]
+        let lane = key.flatMap { key in friends.reversed().firstIndex { $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == key.trimmingCharacters(in: .whitespacesAndNewlines) } }
+        let who = name ?? String(keyFingerprint(fact.author).prefix(6))
+        let agrees = rowTitle.map { sameSong($0, fact.text) } ?? false
+        return Text(agrees ? who : "\(fact.text) · \(who)")
+            .font(.system(size: 12))
+            .foregroundStyle(lane.map { laneColor($0) } ?? muted)
+            .padding(.leading, 50).padding(.trailing, 24).padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                Button("Block \(name ?? who)", role: .destructive) { model.gossip.blockGossip(fact.author) }
+            }
     }
 
     /// One line of the woven set: a published row, one of my Log's entries, or the

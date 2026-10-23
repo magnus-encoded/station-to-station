@@ -714,21 +714,88 @@ fun gossipLogChanges(before: io.github.magnusencoded.stationtostation.data.Store
 }
 
 
-/** A display row retains every source; alignment never writes into a local Log. */
+/**
+ * A display row. [base] is my row, or null for a received line that has no row of mine; [facts]
+ * are the received lines placed on it, drawn as sub-lines. Alignment never writes into a local Log.
+ */
 data class GossipLogRow(val base: Int?, val text: String?, val facts: List<GossipEnvelope> = emptyList())
 
+/**
+ * Places each author's received **Log** lines among [base], my rows top to bottom (blank is a
+ * **Gap**, null a non-song row). Authors are woven one at a time over the rows already woven.
+ *
+ * Same title is an anchor (score 2), my Gap against any line scores 1, other pairs 0. Lines
+ * between anchors go to the row at the same distance from the nearest anchor, measured in the
+ * author's line numbers, never by rank among the lines received: bottom-up before the first
+ * anchor, row by row between two, top-down after the last or from line 0 with none. A line with
+ * no row there becomes a row of its own. Lines never received stay holes; a tombstone (empty text)
+ * removes its number and later numbers collapse. My side is counted by row position.
+ */
 fun weaveGossip(base: List<String?>, facts: List<GossipEnvelope>): List<GossipLogRow> {
     var rows = base.mapIndexed { index, text -> GossipLogRow(index, text) }
-    // Each author supplies an ordered sequence. Align sequences, never a set of titles:
-    // two occurrences within a sequence must remain two occurrences on screen.
     facts.filter { it.kind == "log" }.groupBy { it.author + "\n" + it.scope }.toSortedMap().values.forEach { versions ->
-        val source = versions.sortedBy { it.line }
-        rows = io.github.magnusencoded.stationtostation.data.weaveSetlist(rows.map { it.text }, source.map { it.text }).map { match ->
-            val previous = match.published?.let { rows[it] }
-            val fact = match.logged?.let { source[it] }
-            GossipLogRow(previous?.base, previous?.text ?: fact?.text,
-                previous?.facts.orEmpty() + listOfNotNull(fact))
-        }
+        rows = placeAuthor(rows, versions)
     }
     return rows
+}
+
+private fun placeAuthor(rows: List<GossipLogRow>, versions: List<GossipEnvelope>): List<GossipLogRow> {
+    val latest = versions.groupBy { it.line }.mapValues { (_, same) -> same.maxByOrNull { it.createdAt }!! }
+    val removed = latest.filterValues { it.text.isEmpty() }.keys.sorted()
+    val lines = latest.values.filter { it.text.isNotEmpty() }.sortedBy { it.line }
+        .map { fact -> (fact.line - removed.count { it < fact.line }) to fact }
+    if (lines.isEmpty()) return rows
+
+    fun score(row: GossipLogRow, fact: GossipEnvelope): Int {
+        val title = row.text
+        return when {
+            title == null -> 0
+            title.isNotBlank() && io.github.magnusencoded.stationtostation.data.sameSong(title, fact.text) -> 2
+            row.base != null && title.isBlank() -> 1
+            else -> 0
+        }
+    }
+    val best = Array(rows.size + 1) { IntArray(lines.size + 1) }
+    for (r in rows.indices.reversed()) for (k in lines.indices.reversed()) {
+        best[r][k] = maxOf(best[r + 1][k], best[r][k + 1], best[r + 1][k + 1] + score(rows[r], lines[k].second))
+    }
+    val anchors = mutableListOf<Pair<Int, Int>>()
+    var r = 0
+    var k = 0
+    while (r < rows.size && k < lines.size) {
+        val s = score(rows[r], lines[k].second)
+        when {
+            s > 0 && best[r][k] == best[r + 1][k + 1] + s -> { if (s == 2) anchors += r to k; r++; k++ }
+            best[r][k] == best[r + 1][k] -> r++
+            else -> k++
+        }
+    }
+
+    val onRow = HashMap<Int, MutableList<GossipEnvelope>>()
+    val ownBefore = HashMap<Int, MutableList<GossipEnvelope>>()
+    val anchorRowOfLine = anchors.associate { (row, line) -> line to row }
+    fun anchorPosition(anchor: Pair<Int, Int>) = lines[anchor.second].first
+    lines.forEachIndexed { index, (position, fact) ->
+        anchorRowOfLine[index]?.let { onRow.getOrPut(it) { mutableListOf() } += fact; return@forEachIndexed }
+        val previous = anchors.lastOrNull { anchorPosition(it) < position }
+        val next = anchors.firstOrNull { anchorPosition(it) > position }
+        val bottomUp = previous == null && next != null
+        val target = when {
+            bottomUp -> next!!.first - (anchorPosition(next) - position)
+            previous == null -> position
+            else -> previous.first + (position - anchorPosition(previous))
+        }
+        val limit = next?.first ?: rows.size
+        when {
+            target in 0 until limit -> onRow.getOrPut(target) { mutableListOf() } += fact
+            bottomUp -> ownBefore.getOrPut(0) { mutableListOf() } += fact
+            else -> ownBefore.getOrPut(limit) { mutableListOf() } += fact
+        }
+    }
+    return buildList {
+        for (index in 0..rows.size) {
+            ownBefore[index]?.forEach { add(GossipLogRow(null, it.text, listOf(it))) }
+            if (index < rows.size) add(rows[index].let { it.copy(facts = it.facts + onRow[index].orEmpty()) })
+        }
+    }
 }
