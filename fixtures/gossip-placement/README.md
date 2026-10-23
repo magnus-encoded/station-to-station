@@ -8,7 +8,9 @@ Per case:
 
 - `mine` — my rows top to bottom. `""` is a **Gap**, `null` a non-song row (an encore marker).
 - `theirs` — per author, `{ "<line number>": "<text>" }`. Numbers are the author's own and
-  may have holes. `""` is a tombstone: the number is removed and later numbers collapse.
+  may have holes. `""` is a tombstone: the number is removed and later numbers collapse. A value may
+  instead be `{ "text", "createdAt" }`, or a list of them for several versions of one line;
+  plain text has `createdAt` 1000. Equal `createdAt` resolves to the greater text.
 - `expected` — the woven rows. `base` is my row index, or `null` for a received line with no
   row of mine. `lines` is every received line on that row as `"<author>:<line number>"`.
 

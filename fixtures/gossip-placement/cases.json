@@ -84,5 +84,25 @@
    "expected": [
      {"base": null, "lines": ["amanda:0", "bo:0"]},
      {"base": 0, "lines": ["amanda:1", "bo:1"]},
-     {"base": null, "lines": ["bo:2"]}]}
+     {"base": null, "lines": ["bo:2"]}]},
+  {"name": "a row of only whitespace is a Gap",
+   "mine": ["  ", "song3"],
+   "theirs": {"amanda": {"0": "song1", "1": "song2", "2": "song3"}},
+   "expected": [
+     {"base": null, "lines": ["amanda:0"]},
+     {"base": 0, "lines": ["amanda:1"]},
+     {"base": 1, "lines": ["amanda:2"]}]},
+  {"name": "two versions of one line made at the same time resolve to the longer text, so a tombstone loses",
+   "mine": ["song1", "x"],
+   "theirs": {"amanda": {"0": [{"text": "song1", "createdAt": 5}, {"text": "", "createdAt": 5}]}},
+   "expected": [
+     {"base": 0, "lines": ["amanda:0"]},
+     {"base": 1, "lines": []}]},
+  {"name": "a Gap with no anchor does not pull a later line off its own number",
+   "mine": ["", "a", "b"],
+   "theirs": {"amanda": {"2": "x"}},
+   "expected": [
+     {"base": 0, "lines": []},
+     {"base": 1, "lines": []},
+     {"base": 2, "lines": ["amanda:2"]}]}
 ]

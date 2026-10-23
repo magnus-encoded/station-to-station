@@ -740,7 +740,7 @@ fun weaveGossip(base: List<String?>, facts: List<GossipEnvelope>): List<GossipLo
 }
 
 private fun placeAuthor(rows: List<GossipLogRow>, versions: List<GossipEnvelope>): List<GossipLogRow> {
-    val latest = versions.groupBy { it.line }.mapValues { (_, same) -> same.maxByOrNull { it.createdAt }!! }
+    val latest = versions.groupBy { it.line }.mapValues { (_, same) -> same.maxWithOrNull(compareBy({ it.createdAt }, { it.id }, { it.text }))!! }
     val removed = latest.filterValues { it.text.isEmpty() }.keys.sorted()
     val lines = latest.values.filter { it.text.isNotEmpty() }.sortedBy { it.line }
         .map { fact -> (fact.line - removed.count { it < fact.line }) to fact }

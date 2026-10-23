@@ -16,10 +16,16 @@ final class GossipPlacementTests: XCTestCase {
             let name = item["name"] as? String ?? ""
             let mine = (item["mine"] as! [Any]).map { $0 is NSNull ? nil : ($0 as! String) }
             var facts: [GossipEnvelope] = []
-            for (author, lines) in item["theirs"] as! [String: [String: String]] {
-                for (line, text) in lines {
-                    facts.append(GossipEnvelope(gigId: "gig", scope: "scope", author: author, createdAt: 1000,
-                                                expiresAt: 100000, kind: "log", line: Int(line)!, text: text))
+            for (author, lines) in item["theirs"] as! [String: [String: Any]] {
+                for (line, value) in lines {
+                    let versions = (value as? [Any]) ?? [value]
+                    for version in versions {
+                        let object = version as? [String: Any]
+                        let text = object.map { $0["text"] as! String } ?? (version as! String)
+                        let createdAt = object.map { ($0["createdAt"] as! NSNumber).int64Value } ?? 1000
+                        facts.append(GossipEnvelope(gigId: "gig", scope: "scope", author: author, createdAt: createdAt,
+                                                    expiresAt: 100000, kind: "log", line: Int(line)!, text: text))
+                    }
                 }
             }
             let actual = weaveGossip(base: mine, facts: facts.shuffled())

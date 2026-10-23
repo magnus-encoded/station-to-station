@@ -152,8 +152,8 @@ struct GigView: View {
                                 .font(.system(size: 13)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 8)
                         } else {
-                            ForEach(Array(gossipRows.enumerated()), id: \.offset) { _, row in
-                                gossipRowView(row, woven: woven, rows: rows, log: log, show: show)
+                            ForEach(Array(gossipRows.enumerated()), id: \.offset) { position, row in
+                                gossipRowView(row, position: position, woven: woven, rows: rows, log: log, show: show)
                             }
                         }
                         // My own Log (#169), under the set and never taken away — it
@@ -627,13 +627,17 @@ struct GigView: View {
     }
 
     @ViewBuilder
-    private func gossipRowView(_ row: GossipLogRow, woven: [WovenSong], rows: [EventRow],
+    private func gossipRowView(_ row: GossipLogRow, position: Int, woven: [WovenSong], rows: [EventRow],
                                log: StoredLog, show: FmSetlist) -> some View {
         if let base = row.base {
             wovenRow(woven[base], rows: rows, log: log, setlist: show, canLog: canLog(show))
         } else {
-            Text(row.text?.isEmpty == false ? row.text! : "a song they couldn't name")
-                .padding(.leading, 50).padding(.trailing, 24).padding(.top, 8)
+            HStack(alignment: .top, spacing: 0) {
+                Text("\(position + 1)").font(.system(size: 12)).foregroundStyle(muted)
+                    .frame(width: 50)
+                Text(row.text?.nilIfBlank ?? "a song they couldn't name")
+            }
+            .padding(.trailing, 24).padding(.top, 8)
         }
         ForEach(row.facts, id: \.id) { fact in
             gossipSubLine(fact, rowTitle: row.base == nil ? nil : row.text)

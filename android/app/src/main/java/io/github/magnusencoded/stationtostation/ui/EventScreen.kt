@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -1442,10 +1443,13 @@ private fun LazyListScope.setlistRows(
             )
         }
     }
-    itemsIndexed(gossipRows) { _, gossipRow ->
+    itemsIndexed(gossipRows) { position, gossipRow ->
         if (gossipRow.base == null) {
-            Text(gossipRow.text?.ifBlank { "a song they couldn't name" }.orEmpty(), color = Ink,
-                modifier = Modifier.padding(start = 50.dp, end = 20.dp, top = 8.dp))
+            Row(Modifier.padding(end = 20.dp, top = 8.dp)) {
+                Text((position + 1).toString(), color = Muted, fontSize = 12.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.width(50.dp))
+                Text(gossipRow.text?.ifBlank { "a song they couldn't name" }.orEmpty(), color = Ink)
+            }
             gossipRow.facts.forEach { GossipSubLine(it, null, publicGossip, friends, contactNames, onBlock) }
         } else {
         val line = woven[gossipRow.base]

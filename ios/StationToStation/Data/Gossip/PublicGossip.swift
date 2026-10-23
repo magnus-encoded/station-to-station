@@ -724,8 +724,11 @@ func weaveGossip(base: [String?], facts: [GossipEnvelope]) -> [GossipLogRow] {
 }
 
 private func placeAuthor(_ rows: [GossipLogRow], versions: [GossipEnvelope]) -> [GossipLogRow] {
+    func newer(_ a: GossipEnvelope, than b: GossipEnvelope) -> Bool {
+        (a.createdAt, a.id, a.text) > (b.createdAt, b.id, b.text)
+    }
     var latest: [Int: GossipEnvelope] = [:]
-    for fact in versions where latest[fact.line].map({ $0.createdAt < fact.createdAt }) ?? true {
+    for fact in versions where latest[fact.line].map({ newer(fact, than: $0) }) ?? true {
         latest[fact.line] = fact
     }
     let removed = latest.values.filter { $0.text.isEmpty }.map(\.line)
@@ -736,8 +739,8 @@ private func placeAuthor(_ rows: [GossipLogRow], versions: [GossipEnvelope]) -> 
 
     func score(_ row: GossipLogRow, _ fact: GossipEnvelope) -> Int {
         guard let title = row.text else { return 0 }
-        if !title.isEmpty && sameSong(title, fact.text) { return 2 }
-        if row.base != nil && title.isEmpty { return 1 }
+        if title.nilIfBlank != nil && sameSong(title, fact.text) { return 2 }
+        if row.base != nil && title.nilIfBlank == nil { return 1 }
         return 0
     }
     var best = Array(repeating: Array(repeating: 0, count: lines.count + 1), count: rows.count + 1)

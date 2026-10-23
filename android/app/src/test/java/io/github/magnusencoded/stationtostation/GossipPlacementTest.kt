@@ -11,6 +11,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,8 +23,8 @@ class GossipPlacementTest {
         Json.parseToJsonElement(file.readText()).jsonArray
     }
 
-    private fun envelope(author: String, line: Int, text: String) = GossipEnvelope(
-        gigId = "gig", scope = "scope", author = author, createdAt = 1000, expiresAt = 100000,
+    private fun envelope(author: String, line: Int, text: String, createdAt: Long = 1000) = GossipEnvelope(
+        gigId = "gig", scope = "scope", author = author, createdAt = createdAt, expiresAt = 100000,
         kind = "log", line = line, text = text,
     )
 
@@ -33,7 +34,14 @@ class GossipPlacementTest {
             val name = case["name"]!!.jsonPrimitive.content
             val mine = case["mine"]!!.jsonArray.map { if (it is JsonNull) null else it.jsonPrimitive.content }
             val facts = case["theirs"]!!.jsonObject.flatMap { (author, lines) ->
-                lines.jsonObject.map { (line, text) -> envelope(author, line.toInt(), text.jsonPrimitive.content) }
+                lines.jsonObject.flatMap { (line, value) ->
+                    val versions = if (value is JsonArray) value.toList() else listOf(value)
+                    versions.map {
+                        if (it is JsonObject) envelope(author, line.toInt(), it["text"]!!.jsonPrimitive.content,
+                            it["createdAt"]!!.jsonPrimitive.long)
+                        else envelope(author, line.toInt(), it.jsonPrimitive.content)
+                    }
+                }
             }
             val actual = weaveGossip(mine, facts.shuffled(java.util.Random(7)))
             val expected = case["expected"]!!.jsonArray.map { it.jsonObject }
