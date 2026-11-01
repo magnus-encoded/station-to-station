@@ -6,8 +6,8 @@ usage: merge-gate <pr> [--dry-run]
 Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
 `<code>: <reason>` line per failed condition. Inputs come from `gh` only.
 
-Author tool: the `Tool: <name>` footer line in the PR body, `dependabot` for its PRs.
-Reviewer tool: the same footer line in an approving review body; a review without one
+Author tool: the marker in the PR body (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
+Reviewer tool: the same markers in an approving review body; a review without one
 does not count. The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
@@ -17,18 +17,18 @@ import subprocess
 import sys
 
 # Paths a user sees on screen; touching one makes a PR visual. fnmatch's `*` crosses `/`.
-VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*View.swift", "ios/*Screen.swift", "ios/*Views/*"]
+VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"]
 BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-TOOL_FOOTER = re.compile(r"^Tool:\s*(\S+)\s*$", re.I | re.M)
+TOOL_MARKERS = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
+                ("codex", re.compile(r"Written by Codex", re.I))]
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
 SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
 FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files"
 
 
 def tool_of(text):
-    m = TOOL_FOOTER.search(text or "")
-    return m.group(1).lower() if m else None
+    return next((name for name, marker in TOOL_MARKERS if marker.search(text or "")), None)
 
 
 def ci_failures(checks):
@@ -59,7 +59,7 @@ def failures(pr):
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
         if author_tool is None:
-            out.append("body-footer: body has no `Tool: <name>` footer")
+            out.append("body-footer: body has no author-tool marker")
 
     approvals = [r for r in pr["reviews"]
                  if r["state"] == "APPROVED" and tool_of(r["body"]) not in (None, author_tool)]

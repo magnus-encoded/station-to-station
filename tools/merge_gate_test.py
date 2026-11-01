@@ -14,12 +14,13 @@ if [ "$1 $2" = "pr view" ]; then cat "$GH_PR"; fi
 exit 0
 """
 
-BODY = "Fixes the thing.\n\nCloses #12\n\nTool: Claude\n"
+BODY = "Fixes the thing.\n\nCloses #12\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+MARK = {"Claude": "🤖 Generated with [Claude Code](https://claude.com/claude-code)", "Codex": "Written by Codex"}
 VISUAL = [{"path": "android/app/src/main/java/app/ui/BillScreen.kt"}]
 
 
 def review(tool, extra="", state="APPROVED"):
-    return {"author": {"login": "reviewer"}, "state": state, "body": f"LGTM\n{extra}\nTool: {tool}\n"}
+    return {"author": {"login": "reviewer"}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
 
 
 def pr(**over):
@@ -90,10 +91,13 @@ class MergeGateTest(unittest.TestCase):
         self.assertMerges(pr(author={"login": "app/dependabot"}, body="Bumps foo.", reviews=[review("Claude")]))
 
     def test_missing_closes_line_is_refused(self):
-        self.assertRefuses(pr(body="Fixes.\n\nTool: Claude\n"), "body-closes")
+        self.assertRefuses(pr(body="Fixes.\n\n"+MARK["Claude"]+"\n"), "body-closes")
 
     def test_visual_pr_without_screenshot_is_refused(self):
         self.assertRefuses(pr(files=VISUAL), "screenshot")
+
+    def test_ios_ui_path_is_visual(self):
+        self.assertRefuses(pr(files=[{"path": "ios/StationToStation/UI/StationView.swift"}]), "screenshot")
 
     def test_visual_pr_with_screenshot_in_non_author_approval_merges(self):
         self.assertMerges(pr(files=VISUAL, reviews=[review("Codex", "![bill](https://example.com/bill.png)")]))
