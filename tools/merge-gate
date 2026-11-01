@@ -43,7 +43,7 @@ SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|we
 # Marker text in any position; an owner approval containing it is never taken as human.
 MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
                ("codex", re.compile(r"Written by Codex", re.I))]
-FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,headRefOid"
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,commits,headRefOid,changedFiles"
 
 
 def unparseable(text):
@@ -56,10 +56,18 @@ def mentions_marker(text):
 
 
 def final_paragraph(text):
-    """Lines of the trailing block of non-blank lines; none when the text is unparseable."""
+    """Lines of the trailing block of non-blank lines, closed fenced blocks removed with
+    their content; none when the text is unparseable."""
     if unparseable(text):
         return []
-    lines = (text or "").rstrip().splitlines()
+    lines, fenced = [], False
+    for line in (text or "").splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+        elif not fenced:
+            lines.append(line)
+    while lines and not lines[-1].strip():
+        lines.pop()
     start = len(lines)
     while start > 0 and lines[start - 1].strip():
         start -= 1
@@ -171,6 +179,10 @@ def failures(pr):
     return out
 
 
+MAX_COMMITS = 250
+MAX_FILES = 3000
+
+
 def rest_list(number, kind):
     """Every item of pulls/<n>/<kind>, across pages (gh pr view caps files and commits)."""
     raw = subprocess.run(["gh", "api", "--paginate", "--slurp", f"repos/{{owner}}/{{repo}}/pulls/{number}/{kind}"],
@@ -188,9 +200,16 @@ def main(argv):
     raw = subprocess.run(["gh", "pr", "view", number, "--json", FIELDS],
                          check=True, capture_output=True, text=True).stdout
     pr = json.loads(raw)
-    pr["files"] = [{"path": f["filename"]} for f in rest_list(number, "files")]
-    pr["commits"] = [{"messageBody": c["commit"]["message"]} for c in rest_list(number, "commits")]
+    files = rest_list(number, "files")
+    commits = rest_list(number, "commits")
+    # Pagination must return everything the PR reports, and the API caps both lists.
+    too_large = (len(files) != pr["changedFiles"] or len(commits) != len(pr["commits"])
+                 or len(commits) >= MAX_COMMITS or len(files) >= MAX_FILES)
+    pr["files"] = [{"path": f["filename"]} for f in files]
+    pr["commits"] = [{"messageBody": c["commit"]["message"]} for c in commits]
     failed = failures(pr)
+    if too_large:
+        failed.append("too-large: files or commits not fully listed, or beyond the API's limits")
     if failed:
         print("\n".join(failed))
         return 1

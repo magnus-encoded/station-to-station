@@ -56,8 +56,10 @@ class MergeGateTest(unittest.TestCase):
             gh.write_text(FAKE_GH)
             gh.chmod(0o755)
             data = dict(data)
+            data.setdefault("changedFiles", len(data["files"]))
+            rest_commits = data.pop("rest_commits", data["commits"])
             files = [[{"filename": f["path"]} for f in data.pop("files")]]
-            commits = [[{"commit": {"message": c["messageBody"]}} for c in data.pop("commits")]]
+            commits = [[{"commit": {"message": c["messageBody"]}} for c in rest_commits]]
             (tmp / "pr.json").write_text(json.dumps(data))
             (tmp / "files.json").write_text(json.dumps(files))
             (tmp / "commits.json").write_text(json.dumps(commits))
@@ -199,6 +201,29 @@ class MergeGateTest(unittest.TestCase):
 
     def test_empty_ci_rollup_is_refused(self):
         self.assertRefuses(pr(statusCheckRollup=[]), "no-ci")
+
+    def test_marker_inside_a_closed_fence_at_the_end_is_not_a_footer(self):
+        body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n"
+        self.assertRefuses(pr(body=body), "body-footer")
+
+    def test_verdict_inside_a_closed_fence_does_not_approve(self):
+        r = agent_review("Codex")
+        r["body"] = "LGTM\n\n```\nVerdict: approve\n```\n" + MARK["Codex"] + "\n"
+        self.assertRefuses(pr(reviews=[r]), "no-review")
+
+    def test_footer_before_a_trailing_fence_still_counts(self):
+        body = BODY + "\n```\nlog\n```\n"
+        self.assertMerges(pr(body=body))
+
+    def test_files_count_mismatch_is_too_large(self):
+        self.assertRefuses(pr(changedFiles=5), "too-large")
+
+    def test_commits_count_mismatch_is_too_large(self):
+        self.assertRefuses(pr(rest_commits=[]), "too-large")
+
+    def test_two_hundred_fifty_commits_is_too_large(self):
+        commits = [{"messageBody": ""}] * 250
+        self.assertRefuses(pr(commits=commits), "too-large")
 
     def test_review_that_quotes_a_marker_does_not_count(self):
         r = {"commit": {"oid": "abc123"}, "author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
