@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""The only way an agent merges a PR: checks the agreed conditions, then squash-merges.
+
+usage: merge-gate <pr> [--dry-run]
+
+Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
+`<code>: <reason>` line per failed condition. Inputs come from `gh` only.
+
+Author tool: the `Tool: <name>` footer line in the PR body, `dependabot` for its PRs.
+Reviewer tool: the same footer line in an approving review body; a review without one
+does not count. The rules are the constants below, so a policy change is one edit.
+"""
+import fnmatch
+import json
+import re
+import subprocess
+import sys
+
+# Paths a user sees on screen; touching one makes a PR visual. fnmatch's `*` crosses `/`.
+VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*View.swift", "ios/*Screen.swift", "ios/*Views/*"]
+BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
+GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+TOOL_FOOTER = re.compile(r"^Tool:\s*(\S+)\s*$", re.I | re.M)
+CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
+SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files"
+
+
+def tool_of(text):
+    m = TOOL_FOOTER.search(text or "")
+    return m.group(1).lower() if m else None
+
+
+def ci_failures(checks):
+    out = []
+    # CheckRuns carry status/conclusion; commit statuses carry state.
+    if any(c.get("status", "COMPLETED") != "COMPLETED" or c.get("state") in ("PENDING", "EXPECTED") for c in checks):
+        out.append("ci-pending: checks still running")
+    if any((c.get("conclusion") and c["conclusion"] not in GREEN) or c.get("state") in ("FAILURE", "ERROR")
+           for c in checks):
+        out.append("ci-red: a check failed")
+    return out
+
+
+def failures(pr):
+    """Every unmet condition for this PR, one `<code>: <reason>` string each."""
+    out = []
+    if pr["state"] != "OPEN":
+        out.append("closed: PR is not open")
+    if pr["isDraft"]:
+        out.append("draft: PR is a draft")
+    if pr["mergeable"] != "MERGEABLE":
+        out.append("conflict: does not merge cleanly into main")
+    out += ci_failures(pr["statusCheckRollup"] or [])
+
+    bot = BOT_AUTHORS.get(pr["author"]["login"])
+    author_tool = bot or tool_of(pr["body"])
+    if not bot:
+        if not CLOSES.search(pr["body"] or ""):
+            out.append("body-closes: body has no `Closes #n` line")
+        if author_tool is None:
+            out.append("body-footer: body has no `Tool: <name>` footer")
+
+    approvals = [r for r in pr["reviews"]
+                 if r["state"] == "APPROVED" and tool_of(r["body"]) not in (None, author_tool)]
+    if not approvals:
+        out.append("no-review: no approving review by a tool other than the author tool")
+    if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):
+        if not any(SCREENSHOT.search(r["body"]) for r in approvals):
+            out.append("screenshot: UI change without a screenshot in a non-author approval")
+    return out
+
+
+def main(argv):
+    dry = "--dry-run" in argv
+    args = [a for a in argv if a != "--dry-run"]
+    if len(args) != 1 or not args[0].isdigit():
+        print("usage: merge-gate <pr> [--dry-run]", file=sys.stderr)
+        return 2
+    number = args[0]
+    raw = subprocess.run(["gh", "pr", "view", number, "--json", FIELDS],
+                         check=True, capture_output=True, text=True).stdout
+    failed = failures(json.loads(raw))
+    if failed:
+        print("\n".join(failed))
+        return 1
+    if not dry:
+        subprocess.run(["gh", "pr", "merge", number, "--squash"], check=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
