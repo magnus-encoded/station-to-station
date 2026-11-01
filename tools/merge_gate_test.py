@@ -19,8 +19,8 @@ MARK = {"Claude": "🤖 Generated with [Claude Code](https://claude.com/claude-c
 VISUAL = [{"path": "android/app/src/main/java/app/ui/BillScreen.kt"}]
 
 
-def review(tool, extra="", state="APPROVED"):
-    return {"author": {"login": "reviewer"}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
+def review(tool, extra="", state="APPROVED", login="reviewer"):
+    return {"author": {"login": login}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
 
 
 def pr(**over):
@@ -89,6 +89,27 @@ class MergeGateTest(unittest.TestCase):
 
     def test_dependabot_merges_on_any_agent_approval_without_body_checks(self):
         self.assertMerges(pr(author={"login": "app/dependabot"}, body="Bumps foo.", reviews=[review("Claude")]))
+
+    def test_pr_by_two_tools_needs_a_reviewer_outside_both(self):
+        body = BODY + MARK["Codex"] + "\n"
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "no-review")
+
+    def test_owner_approval_counts_for_a_pr_by_two_tools(self):
+        body = BODY + MARK["Codex"] + "\n"
+        owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
+        self.assertMerges(pr(body=body, reviews=[owner]))
+
+    def test_marker_in_a_blockquote_is_not_a_footer(self):
+        body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
+
+    def test_marker_in_a_code_fence_is_not_a_footer(self):
+        body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n"
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
+
+    def test_review_that_quotes_a_marker_does_not_count(self):
+        r = {"author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
+        self.assertRefuses(pr(reviews=[r]), "no-review")
 
     def test_missing_closes_line_is_refused(self):
         self.assertRefuses(pr(body="Fixes.\n\n"+MARK["Claude"]+"\n"), "body-closes")

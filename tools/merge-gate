@@ -6,9 +6,9 @@ usage: merge-gate <pr> [--dry-run]
 Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
 `<code>: <reason>` line per failed condition. Inputs come from `gh` only.
 
-Author tool: the marker in the PR body (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
-Reviewer tool: the same markers in an approving review body; a review without one
-does not count. The rules are the constants below, so a policy change is one edit.
+Author tools: every marker in the PR body (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
+Reviewer: an approving review whose markers lie outside that set, or any approval
+by the repo owner; a review with neither does not count. The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
 import json
@@ -20,15 +20,21 @@ import sys
 VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"]
 BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-TOOL_MARKERS = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
-                ("codex", re.compile(r"Written by Codex", re.I))]
+OWNER = "magnus-encoded"
+# Anchored to a line start: a marker quoted mid-line or inside a blockquote is not a footer.
+TOOL_MARKERS = [("claude", re.compile(r"^\W*Generated with \[Claude Code\]", re.I | re.M)),
+                ("codex", re.compile(r"^\W*Written by Codex\b", re.I | re.M))]
+FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.M | re.S)
+QUOTE = re.compile(r"^\s*>.*$", re.M)
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
 SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
 FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files"
 
 
-def tool_of(text):
-    return next((name for name, marker in TOOL_MARKERS if marker.search(text or "")), None)
+def tools_of(text):
+    """Every tool whose marker appears as a real footer line, outside fences and quotes."""
+    text = QUOTE.sub("", FENCE.sub("", text or ""))
+    return {name for name, marker in TOOL_MARKERS if marker.search(text)}
 
 
 def ci_failures(checks):
@@ -40,6 +46,14 @@ def ci_failures(checks):
            for c in checks):
         out.append("ci-red: a check failed")
     return out
+
+
+def is_outside(review, author_tools):
+    """The repo owner is never an author tool; any other reviewer needs a marker outside the set."""
+    if review["author"]["login"] == OWNER:
+        return True
+    tools = tools_of(review["body"])
+    return bool(tools) and not tools & author_tools
 
 
 def failures(pr):
@@ -54,15 +68,14 @@ def failures(pr):
     out += ci_failures(pr["statusCheckRollup"] or [])
 
     bot = BOT_AUTHORS.get(pr["author"]["login"])
-    author_tool = bot or tool_of(pr["body"])
+    author_tools = {bot} if bot else tools_of(pr["body"])
     if not bot:
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
-        if author_tool is None:
+        if not author_tools:
             out.append("body-footer: body has no author-tool marker")
 
-    approvals = [r for r in pr["reviews"]
-                 if r["state"] == "APPROVED" and tool_of(r["body"]) not in (None, author_tool)]
+    approvals = [r for r in pr["reviews"] if r["state"] == "APPROVED" and is_outside(r, author_tools)]
     if not approvals:
         out.append("no-review: no approving review by a tool other than the author tool")
     if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):
