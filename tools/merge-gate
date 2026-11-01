@@ -15,7 +15,11 @@ PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits
 to the set; `dependabot` for its PRs.
 Reviewer: a reviewer's latest review, approving the validated head commit, with
 markers outside that set; or, from the repo owner, with no marker text at all (agents
-post as the owner, so a marker always wins). Any latest CHANGES_REQUESTED refuses.
+post as the owner, so a marker always wins). GitHub forbids approving your own PR and
+agents share one account, so an agent approves with a COMMENTED review whose final
+paragraph has the line `Verdict: approve` plus a tool marker (`Verdict: changes` to
+block). Real APPROVED reviews from other accounts count too. Any latest
+CHANGES_REQUESTED or `Verdict: changes` refuses.
 The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
@@ -39,7 +43,7 @@ SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|we
 # Marker text in any position; an owner approval containing it is never taken as human.
 MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
                ("codex", re.compile(r"Written by Codex", re.I))]
-FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files,commits,headRefOid"
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,headRefOid"
 
 
 def unparseable(text):
@@ -51,20 +55,24 @@ def mentions_marker(text):
     return any(m.search(text or "") for _, m in MARKER_TEXT)
 
 
+def final_paragraph(text):
+    """Lines of the trailing block of non-blank lines; none when the text is unparseable."""
+    if unparseable(text):
+        return []
+    lines = (text or "").rstrip().splitlines()
+    start = len(lines)
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    return lines[start:]
+
+
 def tools_of(text):
     """Tools named by marker lines in the final paragraph of a PR body or review.
 
     Nothing counts when the text has an unclosed code fence, which may be swallowing
     the footer; `unparseable` reports that case.
     """
-    lines = (text or "").rstrip().splitlines()
-    start = len(lines)
-    while start > 0 and lines[start - 1].strip():
-        start -= 1
-    before, block = lines[:start], lines[start:]
-    if unparseable(text):
-        return set()
-    return {name for l in block for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
+    return {name for l in final_paragraph(text) for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
 
 
 def commit_tools(commits):
@@ -73,6 +81,8 @@ def commit_tools(commits):
 
 def ci_failures(checks):
     out = []
+    if not checks:
+        out.append("no-ci: no checks reported")
     # CheckRuns carry status/conclusion; commit statuses carry state.
     if any(c.get("status", "COMPLETED") != "COMPLETED" or c.get("state") in ("PENDING", "EXPECTED") for c in checks):
         out.append("ci-pending: checks still running")
@@ -90,15 +100,38 @@ def is_outside(review, author_tools):
     return review["author"]["login"] == OWNER and not mentions_marker(review["body"])
 
 
-def latest_reviews(reviews):
-    """Each reviewer's last decisive review, one per account and marker set.
+def verdict(review):
+    """approve, changes, dismissed, or None for a review that decides nothing.
 
-    A later CHANGES_REQUESTED or dismissal overrides an earlier approval; comments do not.
+    A COMMENTED review decides only through a `Verdict:` line in its final paragraph;
+    approving also needs a tool marker.
+    """
+    state = review["state"]
+    if state == "APPROVED":
+        return "approve"
+    if state == "CHANGES_REQUESTED":
+        return "changes"
+    if state == "DISMISSED":
+        return "dismissed"
+    if state == "COMMENTED":
+        lines = [l.rstrip() for l in final_paragraph(review["body"])]
+        if "Verdict: changes" in lines:
+            return "changes"
+        if "Verdict: approve" in lines and tools_of(review["body"]):
+            return "approve"
+    return None
+
+
+def latest_reviews(reviews):
+    """Each reviewer's last decisive review as (verdict, review), one per account and marker set.
+
+    A later change request or dismissal overrides an earlier approval; plain comments do not.
     """
     latest = {}
     for r in reviews:
-        if r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[(r["author"]["login"], frozenset(tools_of(r["body"])))] = r
+        v = verdict(r)
+        if v:
+            latest[(r["author"]["login"], frozenset(tools_of(r["body"])))] = (v, r)
     return list(latest.values())
 
 
@@ -125,10 +158,10 @@ def failures(pr):
             out.append("body-closes: body has no `Closes #n` line")
 
     latest = latest_reviews(pr["reviews"])
-    if any(r["state"] == "CHANGES_REQUESTED" for r in latest):
+    if any(v == "changes" for v, _ in latest):
         out.append("changes-requested: a reviewer's latest review requests changes")
     # An approval of an older commit needs re-review after a push.
-    approvals = [r for r in latest if r["state"] == "APPROVED"
+    approvals = [r for v, r in latest if v == "approve"
                  and (r.get("commit") or {}).get("oid") == pr["headRefOid"] and is_outside(r, author_tools)]
     if not approvals:
         out.append("no-review: no approving review by a tool other than the author tool")
@@ -136,6 +169,13 @@ def failures(pr):
         if not any(SCREENSHOT.search(r["body"]) for r in approvals):
             out.append("screenshot: UI change without a screenshot in a non-author approval")
     return out
+
+
+def rest_list(number, kind):
+    """Every item of pulls/<n>/<kind>, across pages (gh pr view caps files and commits)."""
+    raw = subprocess.run(["gh", "api", "--paginate", "--slurp", f"repos/{{owner}}/{{repo}}/pulls/{number}/{kind}"],
+                         check=True, capture_output=True, text=True).stdout
+    return [item for page in json.loads(raw) for item in page]
 
 
 def main(argv):
@@ -148,6 +188,8 @@ def main(argv):
     raw = subprocess.run(["gh", "pr", "view", number, "--json", FIELDS],
                          check=True, capture_output=True, text=True).stdout
     pr = json.loads(raw)
+    pr["files"] = [{"path": f["filename"]} for f in rest_list(number, "files")]
+    pr["commits"] = [{"messageBody": c["commit"]["message"]} for c in rest_list(number, "commits")]
     failed = failures(pr)
     if failed:
         print("\n".join(failed))

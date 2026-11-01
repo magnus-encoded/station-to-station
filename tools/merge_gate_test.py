@@ -11,6 +11,9 @@ GATE = Path(__file__).with_name("merge-gate")
 FAKE_GH = """#!/usr/bin/env bash
 echo "$@" >> "$GH_LOG"
 if [ "$1 $2" = "pr view" ]; then cat "$GH_PR"; fi
+if [ "$1" = "api" ]; then
+  case "$*" in *pulls/7/files) cat "$GH_FILES" ;; *pulls/7/commits) cat "$GH_COMMITS" ;; esac
+fi
 exit 0
 """
 
@@ -21,6 +24,11 @@ VISUAL = [{"path": "android/app/src/main/java/app/ui/BillScreen.kt"}]
 
 def review(tool, extra="", state="APPROVED", login="reviewer", oid="abc123"):
     return {"commit": {"oid": oid}, "author": {"login": login}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
+
+
+def agent_review(tool, line="Verdict: approve", oid="abc123"):
+    body = f"LGTM\n\n{line}\n{MARK[tool]}\n"
+    return {"commit": {"oid": oid}, "author": {"login": "magnus-encoded"}, "state": "COMMENTED", "body": body}
 
 
 def pr(**over):
@@ -47,10 +55,16 @@ class MergeGateTest(unittest.TestCase):
             gh = tmp / "gh"
             gh.write_text(FAKE_GH)
             gh.chmod(0o755)
+            data = dict(data)
+            files = [[{"filename": f["path"]} for f in data.pop("files")]]
+            commits = [[{"commit": {"message": c["messageBody"]}} for c in data.pop("commits")]]
             (tmp / "pr.json").write_text(json.dumps(data))
+            (tmp / "files.json").write_text(json.dumps(files))
+            (tmp / "commits.json").write_text(json.dumps(commits))
             (tmp / "log").touch()
-            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
-                       GH_LOG=str(tmp / "log"), GH_PR=str(tmp / "pr.json"))
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", GH_LOG=str(tmp / "log"),
+                       GH_PR=str(tmp / "pr.json"), GH_FILES=str(tmp / "files.json"),
+                       GH_COMMITS=str(tmp / "commits.json"))
             result = subprocess.run([str(GATE), "7", *args], env=env, capture_output=True, text=True)
             return result, "pr merge 7 --squash --match-head-commit abc123" in (tmp / "log").read_text()
 
@@ -160,18 +174,31 @@ class MergeGateTest(unittest.TestCase):
         commits = [{"messageBody": "Co-Authored-By: Codex <noreply@openai.com>"}]
         self.assertRefuses(pr(commits=commits, reviews=[review("Codex")]), "no-review")
 
-    def test_merge_is_pinned_to_the_validated_commit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            gh = tmp / "gh"
-            gh.write_text(FAKE_GH)
-            gh.chmod(0o755)
-            (tmp / "pr.json").write_text(json.dumps(pr()))
-            (tmp / "log").touch()
-            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
-                       GH_LOG=str(tmp / "log"), GH_PR=str(tmp / "pr.json"))
-            subprocess.run([str(GATE), "7"], env=env, capture_output=True, text=True)
-            self.assertIn("--match-head-commit abc123", (tmp / "log").read_text())
+    def test_agent_verdict_comment_approves(self):
+        self.assertMerges(pr(reviews=[agent_review("Codex")]))
+
+    def test_verdict_by_the_author_tool_does_not_approve(self):
+        self.assertRefuses(pr(reviews=[agent_review("Claude")]), "no-review")
+
+    def test_verdict_comment_without_a_marker_does_not_approve(self):
+        r = agent_review("Codex")
+        r["body"] = "LGTM\n\nVerdict: approve\n"
+        self.assertRefuses(pr(reviews=[r]), "no-review")
+
+    def test_verdict_line_outside_the_final_paragraph_does_not_approve(self):
+        r = agent_review("Codex")
+        r["body"] = "Verdict: approve\n\nbut see below\n\n" + MARK["Codex"] + "\n"
+        self.assertRefuses(pr(reviews=[r]), "no-review")
+
+    def test_later_changes_verdict_overrides_an_earlier_verdict_approval(self):
+        reviews = [agent_review("Codex"), agent_review("Codex", "Verdict: changes")]
+        self.assertRefuses(pr(reviews=reviews), "changes-requested", "no-review")
+
+    def test_verdict_approval_of_an_older_commit_needs_re_review(self):
+        self.assertRefuses(pr(reviews=[agent_review("Codex", oid="old999")]), "no-review")
+
+    def test_empty_ci_rollup_is_refused(self):
+        self.assertRefuses(pr(statusCheckRollup=[]), "no-ci")
 
     def test_review_that_quotes_a_marker_does_not_count(self):
         r = {"commit": {"oid": "abc123"}, "author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
