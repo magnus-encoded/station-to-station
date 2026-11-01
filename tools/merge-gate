@@ -4,12 +4,17 @@
 usage: merge-gate <pr> [--dry-run]
 
 Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
-`<code>: <reason>` line per failed condition. Inputs come from one `gh pr view`; the merge is pinned to that head commit.
+`<code>: <reason>` line per failed condition. Inputs come from one `gh pr view`; the
+merge is pinned to that head commit.
 
-Author tools: every marker in the PR body's footer block (its last paragraph) plus
-Co-Authored-By trailers on the PR's commits (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
-Reviewer: an approving review whose markers lie outside that set, or any approval
-by the repo owner; a review with neither does not count. The rules are the constants below, so a policy change is one edit.
+Markers are an honour system: every agent posts as the same account, so this guards
+against mistakes by cooperative agents, not against adversaries.
+
+Author tools: marker lines (`Generated with [Claude Code]`, `Written by Codex`) in the
+PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits add
+to the set; `dependabot` for its PRs.
+Reviewer: an approving review whose markers lie outside that set, or any approval by
+the repo owner. The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
 import json
@@ -22,9 +27,9 @@ VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"]
 BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 OWNER = "magnus-encoded"
-# Anchored to a line start: a marker quoted mid-line or inside a blockquote is not a footer.
-TOOL_MARKERS = [("claude", re.compile(r"^\W*Generated with \[Claude Code\]", re.I | re.M)),
-                ("codex", re.compile(r"^\W*Written by Codex\b", re.I | re.M))]
+# A whole line, from column 0.
+TOOL_MARKERS = [("claude", re.compile(r"(?:🤖 )?Generated with \[Claude Code\](?:\(\S+\))?")),
+                ("codex", re.compile(r"Written by Codex"))]
 CO_AUTHOR = re.compile(r"^Co-Authored-By:.*\b(claude|codex)\b", re.I | re.M)
 QUOTE = re.compile(r"^\s*>.*$", re.M)
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
@@ -32,20 +37,21 @@ SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|we
 FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files,commits,headRefOid"
 
 
-def footer(text):
-    """The trailing block of non-blank lines, quoted lines dropped. Markers elsewhere are prose."""
-    block = []
-    for line in reversed((text or "").rstrip().splitlines()):
-        if not line.strip():
-            break
-        block.append(line)
-    return "\n".join(l for l in reversed(block) if not l.lstrip().startswith(">"))
-
-
 def tools_of(text):
-    """Every tool whose marker appears in the footer block of a PR body or review."""
-    block = footer(text)
-    return {name for name, marker in TOOL_MARKERS if marker.search(block)}
+    """Tools named by marker lines in the final paragraph of a PR body or review.
+
+    Nothing counts when the text has an unclosed code fence or indented code before
+    the final paragraph, which may be swallowing the footer.
+    """
+    lines = (text or "").rstrip().splitlines()
+    start = len(lines)
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    before, block = lines[:start], lines[start:]
+    fences = sum(1 for l in before + block if l.lstrip().startswith(("```", "~~~")))
+    if fences % 2 or any(l.startswith(("    ", "\t")) for l in before):
+        return set()
+    return {name for l in block for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
 
 
 def commit_tools(commits):
@@ -83,15 +89,15 @@ def failures(pr):
     out += ci_failures(pr["statusCheckRollup"] or [])
 
     bot = BOT_AUTHORS.get(pr["author"]["login"])
-    author_tools = {bot} if bot else tools_of(pr["body"]) | commit_tools(pr["commits"])
+    body_tools = tools_of(pr["body"])
+    author_tools = {bot} if bot else body_tools | commit_tools(pr["commits"])
     if not bot:
+        if not body_tools:
+            out.append("body-footer: body has no author-tool footer line")
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
 
     approvals = [r for r in pr["reviews"] if r["state"] == "APPROVED" and is_outside(r, author_tools)]
-    owner_approved = any(r["state"] == "APPROVED" and r["author"]["login"] == OWNER for r in pr["reviews"])
-    if not author_tools and not owner_approved:
-        out.append("author-unknown: author tool unknown (no footer marker or Co-Authored-By trailer)")
     if not approvals:
         out.append("no-review: no approving review by a tool other than the author tool")
     if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):

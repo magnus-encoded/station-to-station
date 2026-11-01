@@ -103,17 +103,31 @@ class MergeGateTest(unittest.TestCase):
 
     def test_marker_in_a_blockquote_is_not_a_footer(self):
         body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
-        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "author-unknown")
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
 
     def test_marker_before_the_footer_block_is_prose(self):
         body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n\nMore notes.\n"
-        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "author-unknown")
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
 
-    def test_unknown_author_tool_is_refused_unless_the_owner_approved(self):
-        body = "Closes #12\n"
-        self.assertRefuses(pr(body=body), "author-unknown")
+    def test_body_without_a_footer_is_refused_even_with_an_owner_approval(self):
         owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
-        self.assertMerges(pr(body=body, reviews=[owner]))
+        self.assertRefuses(pr(body="Closes #12\n", reviews=[owner]), "body-footer")
+
+    def test_commit_trailers_alone_do_not_satisfy_the_footer(self):
+        commits = [{"messageBody": "Co-Authored-By: Claude <noreply@anthropic.com>"}]
+        self.assertRefuses(pr(body="Closes #12\n", commits=commits), "body-footer")
+
+    def test_unclosed_fence_before_the_footer_voids_it(self):
+        body = "Closes #12\n\n```\ncode\n\n" + MARK["Claude"] + "\n"
+        self.assertRefuses(pr(body=body), "body-footer")
+
+    def test_indented_code_before_the_footer_voids_it(self):
+        body = "Closes #12\n\n    code\n\n" + MARK["Claude"] + "\n"
+        self.assertRefuses(pr(body=body), "body-footer")
+
+    def test_marker_must_be_the_whole_line_from_column_zero(self):
+        for line in (" " + MARK["Claude"], "Not " + MARK["Claude"], MARK["Claude"] + " really"):
+            self.assertRefuses(pr(body="Closes #12\n\n" + line + "\n"), "body-footer")
 
     def test_commit_coauthor_trailer_adds_an_author_tool(self):
         commits = [{"messageBody": "Co-Authored-By: Codex <noreply@openai.com>"}]
