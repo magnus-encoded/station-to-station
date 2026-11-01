@@ -13,8 +13,8 @@ against mistakes by cooperative agents, not against adversaries.
 Author tools: marker lines (`Generated with [Claude Code]`, `Written by Codex`) in the
 PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits add
 to the set; `dependabot` for its PRs.
-Reviewer: an approving review whose markers lie outside that set, or any approval by
-the repo owner. The rules are the constants below, so a policy change is one edit.
+Reviewer: an approving review whose markers lie outside that set, or an unmarked approval
+by the repo owner (agents post as the owner, so a marker always wins). The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
 import json
@@ -70,11 +70,11 @@ def ci_failures(checks):
 
 
 def is_outside(review, author_tools):
-    """The repo owner is never an author tool; any other reviewer needs a marker outside the set."""
-    if review["author"]["login"] == OWNER:
-        return True
+    """A marked review is judged by its markers; an unmarked one counts only from the repo owner (a human)."""
     tools = tools_of(review["body"])
-    return bool(tools) and not tools & author_tools
+    if tools:
+        return not tools & author_tools
+    return review["author"]["login"] == OWNER
 
 
 def failures(pr):

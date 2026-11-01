@@ -101,6 +101,10 @@ class MergeGateTest(unittest.TestCase):
         owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
         self.assertMerges(pr(body=body, reviews=[owner]))
 
+    def test_owner_account_approval_marked_with_the_author_tool_does_not_count(self):
+        marked = review("Claude", login="magnus-encoded")
+        self.assertRefuses(pr(reviews=[marked]), "no-review")
+
     def test_marker_in_a_blockquote_is_not_a_footer(self):
         body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
         self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
