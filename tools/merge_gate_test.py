@@ -123,11 +123,20 @@ class MergeGateTest(unittest.TestCase):
 
     def test_unclosed_fence_before_the_footer_voids_it(self):
         body = "Closes #12\n\n```\ncode\n\n" + MARK["Claude"] + "\n"
-        self.assertRefuses(pr(body=body), "body-footer")
+        self.assertRefuses(pr(body=body), "body-footer", "unparseable-body")
 
-    def test_indented_code_before_the_footer_voids_it(self):
+    def test_indented_code_before_the_footer_does_not_void_it(self):
         body = "Closes #12\n\n    code\n\n" + MARK["Claude"] + "\n"
-        self.assertRefuses(pr(body=body), "body-footer")
+        self.assertMerges(pr(body=body))
+
+    def test_review_with_an_unclosed_fence_is_refused(self):
+        r = review("Codex", "```")
+        self.assertRefuses(pr(reviews=[r]), "unparseable-body", "no-review")
+
+    def test_owner_approval_mentioning_a_marker_anywhere_is_not_human(self):
+        quoted = {"author": {"login": "magnus-encoded"}, "state": "APPROVED",
+                  "body": "    " + MARK["Claude"] + "\n\nok"}
+        self.assertRefuses(pr(reviews=[quoted]), "no-review")
 
     def test_marker_must_be_the_whole_line_from_column_zero(self):
         for line in (" " + MARK["Claude"], "Not " + MARK["Claude"], MARK["Claude"] + " really"):

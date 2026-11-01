@@ -13,8 +13,8 @@ against mistakes by cooperative agents, not against adversaries.
 Author tools: marker lines (`Generated with [Claude Code]`, `Written by Codex`) in the
 PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits add
 to the set; `dependabot` for its PRs.
-Reviewer: an approving review whose markers lie outside that set, or an unmarked approval
-by the repo owner (agents post as the owner, so a marker always wins). The rules are the constants below, so a policy change is one edit.
+Reviewer: an approving review whose markers lie outside that set, or an approval by the
+repo owner with no marker text at all (agents post as the owner, so a marker always wins). The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
 import json
@@ -34,22 +34,33 @@ CO_AUTHOR = re.compile(r"^Co-Authored-By:.*\b(claude|codex)\b", re.I | re.M)
 QUOTE = re.compile(r"^\s*>.*$", re.M)
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
 SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
+# Marker text in any position; an owner approval containing it is never taken as human.
+MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
+               ("codex", re.compile(r"Written by Codex", re.I))]
 FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files,commits,headRefOid"
+
+
+def unparseable(text):
+    """True when the text has an odd number of fence lines."""
+    return sum(1 for l in (text or "").splitlines() if l.lstrip().startswith(("```", "~~~"))) % 2 == 1
+
+
+def mentions_marker(text):
+    return any(m.search(text or "") for _, m in MARKER_TEXT)
 
 
 def tools_of(text):
     """Tools named by marker lines in the final paragraph of a PR body or review.
 
-    Nothing counts when the text has an unclosed code fence or indented code before
-    the final paragraph, which may be swallowing the footer.
+    Nothing counts when the text has an unclosed code fence, which may be swallowing
+    the footer; `unparseable` reports that case.
     """
     lines = (text or "").rstrip().splitlines()
     start = len(lines)
     while start > 0 and lines[start - 1].strip():
         start -= 1
     before, block = lines[:start], lines[start:]
-    fences = sum(1 for l in before + block if l.lstrip().startswith(("```", "~~~")))
-    if fences % 2 or any(l.startswith(("    ", "\t")) for l in before):
+    if unparseable(text):
         return set()
     return {name for l in block for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
 
@@ -74,7 +85,7 @@ def is_outside(review, author_tools):
     tools = tools_of(review["body"])
     if tools:
         return not tools & author_tools
-    return review["author"]["login"] == OWNER
+    return review["author"]["login"] == OWNER and not mentions_marker(review["body"])
 
 
 def failures(pr):
@@ -89,6 +100,8 @@ def failures(pr):
     out += ci_failures(pr["statusCheckRollup"] or [])
 
     bot = BOT_AUTHORS.get(pr["author"]["login"])
+    if unparseable(pr["body"]) or any(unparseable(r["body"]) for r in pr["reviews"]):
+        out.append("unparseable-body: unclosed code fence in the PR or a review body")
     body_tools = tools_of(pr["body"])
     author_tools = {bot} if bot else body_tools | commit_tools(pr["commits"])
     if not bot:
