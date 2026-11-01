@@ -565,7 +565,7 @@ private class TimelineActions(
     val photoPreview: suspend (Uri) -> MediaThumb,
 )
 
-/** Every door to the add-gig dialog is the Tour's Curtain step as well. */
+/** Opens the add-gig dialog and dispatches the Tour's Curtain step; every by-hand door goes through here. */
 internal fun addGigByHand(open: () -> Unit, dispatch: (TourEvent) -> Unit) {
     open()
     dispatch(TourEvent.CurtainPulled)
@@ -1555,7 +1555,7 @@ fun ImportScreen(
                 color = Ink,
                 fontSize = 13.sp,
                 modifier = Modifier
-                    .clickable { byHand = true }
+                    .clickable { addGigByHand({ byHand = true }, viewModel.tour::dispatch) }
                     .padding(vertical = 8.dp),
             )
         }
