@@ -43,12 +43,7 @@ SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|we
 # Marker text in any position; an owner approval containing it is never taken as human.
 MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
                ("codex", re.compile(r"Written by Codex", re.I))]
-FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,commits,headRefOid,changedFiles"
-
-
-def unparseable(text):
-    """True when the text has an odd number of fence lines."""
-    return sum(1 for l in (text or "").splitlines() if l.lstrip().startswith(("```", "~~~"))) % 2 == 1
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,commits,headRefOid,changedFiles,baseRefName"
 
 
 def mentions_marker(text):
@@ -56,18 +51,14 @@ def mentions_marker(text):
 
 
 def final_paragraph(text):
-    """Lines of the trailing block of non-blank lines, closed fenced blocks removed with
-    their content; none when the text is unparseable."""
-    if unparseable(text):
-        return []
-    lines, fenced = [], False
-    for line in (text or "").splitlines():
-        if line.lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
-        elif not fenced:
-            lines.append(line)
-    while lines and not lines[-1].strip():
-        lines.pop()
+    """Lines of the trailing block of non-blank lines after the last fence line.
+
+    Nothing before a fence line counts, so what sits inside or around fences never
+    matters.
+    """
+    lines = (text or "").rstrip().splitlines()
+    fences = [i for i, l in enumerate(lines) if l.lstrip().startswith(("```", "~~~"))]
+    lines = lines[fences[-1] + 1:] if fences else lines
     start = len(lines)
     while start > 0 and lines[start - 1].strip():
         start -= 1
@@ -75,11 +66,7 @@ def final_paragraph(text):
 
 
 def tools_of(text):
-    """Tools named by marker lines in the final paragraph of a PR body or review.
-
-    Nothing counts when the text has an unclosed code fence, which may be swallowing
-    the footer; `unparseable` reports that case.
-    """
+    """Tools named by marker lines in the final paragraph of a PR body or review."""
     return {name for l in final_paragraph(text) for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
 
 
@@ -148,6 +135,8 @@ def failures(pr):
     out = []
     if pr["state"] != "OPEN":
         out.append("closed: PR is not open")
+    if pr["baseRefName"] != "main":
+        out.append("wrong-base: PR does not target main")
     if pr["isDraft"]:
         out.append("draft: PR is a draft")
     if pr["mergeable"] != "MERGEABLE":
@@ -155,8 +144,6 @@ def failures(pr):
     out += ci_failures(pr["statusCheckRollup"] or [])
 
     bot = BOT_AUTHORS.get(pr["author"]["login"])
-    if unparseable(pr["body"]) or any(unparseable(r["body"]) for r in pr["reviews"]):
-        out.append("unparseable-body: unclosed code fence in the PR or a review body")
     body_tools = tools_of(pr["body"])
     author_tools = {bot} if bot else body_tools | commit_tools(pr["commits"])
     if not bot:

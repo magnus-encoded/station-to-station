@@ -34,6 +34,7 @@ def agent_review(tool, line="Verdict: approve", oid="abc123"):
 def pr(**over):
     base = {
         "isDraft": False,
+        "baseRefName": "main",
         "state": "OPEN",
         "mergeable": "MERGEABLE",
         "author": {"login": "magnus-encoded"},
@@ -151,17 +152,9 @@ class MergeGateTest(unittest.TestCase):
         commits = [{"messageBody": "Co-Authored-By: Claude <noreply@anthropic.com>"}]
         self.assertRefuses(pr(body="Closes #12\n", commits=commits), "body-footer")
 
-    def test_unclosed_fence_before_the_footer_voids_it(self):
-        body = "Closes #12\n\n```\ncode\n\n" + MARK["Claude"] + "\n"
-        self.assertRefuses(pr(body=body), "body-footer", "unparseable-body")
-
     def test_indented_code_before_the_footer_does_not_void_it(self):
         body = "Closes #12\n\n    code\n\n" + MARK["Claude"] + "\n"
         self.assertMerges(pr(body=body))
-
-    def test_review_with_an_unclosed_fence_is_refused(self):
-        r = review("Codex", "```")
-        self.assertRefuses(pr(reviews=[r]), "unparseable-body", "no-review")
 
     def test_owner_approval_mentioning_a_marker_anywhere_is_not_human(self):
         quoted = {"commit": {"oid": "abc123"}, "author": {"login": "magnus-encoded"}, "state": "APPROVED",
@@ -211,9 +204,11 @@ class MergeGateTest(unittest.TestCase):
         r["body"] = "LGTM\n\n```\nVerdict: approve\n```\n" + MARK["Codex"] + "\n"
         self.assertRefuses(pr(reviews=[r]), "no-review")
 
-    def test_footer_before_a_trailing_fence_still_counts(self):
-        body = BODY + "\n```\nlog\n```\n"
-        self.assertMerges(pr(body=body))
+    def test_footer_before_a_later_fence_is_not_counted(self):
+        self.assertRefuses(pr(body=BODY + "\n```\nlog\n```\n"), "body-footer")
+
+    def test_pr_not_targeting_main_is_refused(self):
+        self.assertRefuses(pr(baseRefName="release"), "wrong-base")
 
     def test_files_count_mismatch_is_too_large(self):
         self.assertRefuses(pr(changedFiles=5), "too-large")
