@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""The only way an agent merges a PR: checks the agreed conditions, then squash-merges.
+
+usage: merge-gate <pr> [--dry-run]
+
+Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
+`<code>: <reason>` line per failed condition. Inputs come from one `gh pr view`; the
+merge is pinned to that head commit.
+
+Markers are an honour system: every agent posts as the same account, so this guards
+against mistakes by cooperative agents, not against adversaries.
+
+Author tools: marker lines (`Generated with [Claude Code]`, `Written by Codex`) in the
+PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits add
+to the set; `dependabot` for its PRs.
+Reviewer: a reviewer's latest review, approving the validated head commit, with
+markers outside that set; or, from the repo owner, with no marker text at all (agents
+post as the owner, so a marker always wins). GitHub forbids approving your own PR and
+agents share one account, so an agent approves with a COMMENTED review whose final
+paragraph has the line `Verdict: approve` plus a tool marker (`Verdict: changes` to
+block). Real APPROVED reviews from other accounts count too. Any latest
+CHANGES_REQUESTED or `Verdict: changes` refuses.
+The rules are the constants below, so a policy change is one edit.
+"""
+import fnmatch
+import json
+import re
+import subprocess
+import sys
+
+# Paths a user sees on screen; touching one makes a PR visual. fnmatch's `*` crosses `/`.
+VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"]
+BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
+GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+OWNER = "magnus-encoded"
+# A whole line, from column 0.
+TOOL_MARKERS = [("claude", re.compile(r"(?:🤖 )?Generated with \[Claude Code\](?:\(\S+\))?")),
+                ("codex", re.compile(r"Written by Codex"))]
+CO_AUTHOR = re.compile(r"^Co-Authored-By:.*\b(claude|codex)\b", re.I | re.M)
+QUOTE = re.compile(r"^\s*>.*$", re.M)
+CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
+SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
+# Marker text in any position; an owner approval containing it is never taken as human.
+MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
+               ("codex", re.compile(r"Written by Codex", re.I))]
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,commits,headRefOid,changedFiles,baseRefName"
+
+
+def mentions_marker(text):
+    return any(m.search(text or "") for _, m in MARKER_TEXT)
+
+
+def final_paragraph(text):
+    """Lines of the trailing block of non-blank lines after the last fence line.
+
+    Nothing before a fence line counts, so what sits inside or around fences never
+    matters.
+    """
+    lines = (text or "").rstrip().splitlines()
+    fences = [i for i, l in enumerate(lines) if l.lstrip().startswith(("```", "~~~"))]
+    lines = lines[fences[-1] + 1:] if fences else lines
+    start = len(lines)
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    return lines[start:]
+
+
+def tools_of(text):
+    """Tools named by marker lines in the final paragraph of a PR body or review."""
+    return {name for l in final_paragraph(text) for name, marker in TOOL_MARKERS if marker.fullmatch(l.rstrip())}
+
+
+def commit_tools(commits):
+    return {m.group(1).lower() for c in commits for m in CO_AUTHOR.finditer(c.get("messageBody") or "")}
+
+
+def ci_failures(checks):
+    out = []
+    if not checks:
+        out.append("no-ci: no checks reported")
+    # CheckRuns carry status/conclusion; commit statuses carry state.
+    if any(c.get("status", "COMPLETED") != "COMPLETED" or c.get("state") in ("PENDING", "EXPECTED") for c in checks):
+        out.append("ci-pending: checks still running")
+    if any((c.get("conclusion") and c["conclusion"] not in GREEN) or c.get("state") in ("FAILURE", "ERROR")
+           for c in checks):
+        out.append("ci-red: a check failed")
+    return out
+
+
+def is_outside(review, author_tools):
+    """A marked review is judged by its markers; an unmarked one counts only from the repo owner (a human)."""
+    tools = tools_of(review["body"])
+    if tools:
+        return not tools & author_tools
+    return review["author"]["login"] == OWNER and not mentions_marker(review["body"])
+
+
+def verdict(review):
+    """approve, changes, dismissed, or None for a review that decides nothing.
+
+    A COMMENTED review decides only through a `Verdict:` line in its final paragraph;
+    approving also needs a tool marker.
+    """
+    state = review["state"]
+    if state == "APPROVED":
+        return "approve"
+    if state == "CHANGES_REQUESTED":
+        return "changes"
+    if state == "DISMISSED":
+        return "dismissed"
+    if state == "COMMENTED":
+        lines = [l.rstrip() for l in final_paragraph(review["body"])]
+        if "Verdict: changes" in lines:
+            return "changes"
+        if "Verdict: approve" in lines and tools_of(review["body"]):
+            return "approve"
+    return None
+
+
+def latest_reviews(reviews):
+    """Each reviewer's last decisive review as (verdict, review), one per account and marker set.
+
+    A later change request or dismissal overrides an earlier approval; plain comments do not.
+    """
+    latest = {}
+    for r in reviews:
+        v = verdict(r)
+        if v:
+            latest[(r["author"]["login"], frozenset(tools_of(r["body"])))] = (v, r)
+    return list(latest.values())
+
+
+def failures(pr):
+    """Every unmet condition for this PR, one `<code>: <reason>` string each."""
+    out = []
+    if pr["state"] != "OPEN":
+        out.append("closed: PR is not open")
+    if pr["baseRefName"] != "main":
+        out.append("wrong-base: PR does not target main")
+    if pr["isDraft"]:
+        out.append("draft: PR is a draft")
+    if pr["mergeable"] != "MERGEABLE":
+        out.append("conflict: does not merge cleanly into main")
+    out += ci_failures(pr["statusCheckRollup"] or [])
+
+    bot = BOT_AUTHORS.get(pr["author"]["login"])
+    body_tools = tools_of(pr["body"])
+    author_tools = {bot} if bot else body_tools | commit_tools(pr["commits"])
+    if not bot:
+        if not body_tools:
+            out.append("body-footer: body has no author-tool footer line")
+        if not CLOSES.search(pr["body"] or ""):
+            out.append("body-closes: body has no `Closes #n` line")
+
+    latest = latest_reviews(pr["reviews"])
+    if any(v == "changes" for v, _ in latest):
+        out.append("changes-requested: a reviewer's latest review requests changes")
+    # An approval of an older commit needs re-review after a push.
+    approvals = [r for v, r in latest if v == "approve"
+                 and (r.get("commit") or {}).get("oid") == pr["headRefOid"] and is_outside(r, author_tools)]
+    if not approvals:
+        out.append("no-review: no approving review by a tool other than the author tool")
+    if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):
+        if not any(SCREENSHOT.search(r["body"]) for r in approvals):
+            out.append("screenshot: UI change without a screenshot in a non-author approval")
+    return out
+
+
+MAX_COMMITS = 250
+MAX_FILES = 3000
+
+
+def rest_list(number, kind):
+    """Every item of pulls/<n>/<kind>, across pages (gh pr view caps files and commits)."""
+    raw = subprocess.run(["gh", "api", "--paginate", "--slurp", f"repos/{{owner}}/{{repo}}/pulls/{number}/{kind}"],
+                         check=True, capture_output=True, text=True).stdout
+    return [item for page in json.loads(raw) for item in page]
+
+
+def main(argv):
+    dry = "--dry-run" in argv
+    args = [a for a in argv if a != "--dry-run"]
+    if len(args) != 1 or not args[0].isdigit():
+        print("usage: merge-gate <pr> [--dry-run]", file=sys.stderr)
+        return 2
+    number = args[0]
+    raw = subprocess.run(["gh", "pr", "view", number, "--json", FIELDS],
+                         check=True, capture_output=True, text=True).stdout
+    pr = json.loads(raw)
+    files = rest_list(number, "files")
+    commits = rest_list(number, "commits")
+    # Pagination must return everything the PR reports, and the API caps both lists.
+    too_large = (len(files) != pr["changedFiles"] or len(commits) != len(pr["commits"])
+                 or len(commits) >= MAX_COMMITS or len(files) >= MAX_FILES)
+    pr["files"] = [{"path": f["filename"]} for f in files]
+    pr["commits"] = [{"messageBody": c["commit"]["message"]} for c in commits]
+    failed = failures(pr)
+    if too_large:
+        failed.append("too-large: files or commits not fully listed, or beyond the API's limits")
+    if failed:
+        print("\n".join(failed))
+        return 1
+    if not dry:
+        subprocess.run(["gh", "pr", "merge", number, "--squash", "--match-head-commit", pr["headRefOid"]], check=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

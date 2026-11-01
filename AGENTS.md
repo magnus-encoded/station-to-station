@@ -14,6 +14,10 @@
 [`docs/agents/device.md`](docs/agents/device.md) — every `station-to-station://` link, and
 the order to try them in. Use it before swiping over `adb` or `simctl`.
 
+## Reviewing a PR
+
+Record your verdict in the format of [`docs/agents/reviews.md`](docs/agents/reviews.md); `tools/merge-gate` reads it.
+
 ## Writing comments
 
 Follow [`docs/agents/comments.md`](docs/agents/comments.md): separate rules for logic, plumbing and tests. The periodic comment review checks against them.
