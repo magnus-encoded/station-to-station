@@ -4,9 +4,10 @@
 usage: merge-gate <pr> [--dry-run]
 
 Exit 0 on pass (merged; under --dry-run, would merge). On refusal exit 1 and print one
-`<code>: <reason>` line per failed condition. Inputs come from `gh` only.
+`<code>: <reason>` line per failed condition. Inputs come from one `gh pr view`; the merge is pinned to that head commit.
 
-Author tools: every marker in the PR body (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
+Author tools: every marker in the PR body's footer block (its last paragraph) plus
+Co-Authored-By trailers on the PR's commits (`Generated with [Claude Code]`, `Written by Codex`), `dependabot` for its PRs.
 Reviewer: an approving review whose markers lie outside that set, or any approval
 by the repo owner; a review with neither does not count. The rules are the constants below, so a policy change is one edit.
 """
@@ -24,17 +25,31 @@ OWNER = "magnus-encoded"
 # Anchored to a line start: a marker quoted mid-line or inside a blockquote is not a footer.
 TOOL_MARKERS = [("claude", re.compile(r"^\W*Generated with \[Claude Code\]", re.I | re.M)),
                 ("codex", re.compile(r"^\W*Written by Codex\b", re.I | re.M))]
-FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.M | re.S)
+CO_AUTHOR = re.compile(r"^Co-Authored-By:.*\b(claude|codex)\b", re.I | re.M)
 QUOTE = re.compile(r"^\s*>.*$", re.M)
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
 SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
-FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files"
+FIELDS = "isDraft,state,mergeable,author,body,statusCheckRollup,reviews,files,commits,headRefOid"
+
+
+def footer(text):
+    """The trailing block of non-blank lines, quoted lines dropped. Markers elsewhere are prose."""
+    block = []
+    for line in reversed((text or "").rstrip().splitlines()):
+        if not line.strip():
+            break
+        block.append(line)
+    return "\n".join(l for l in reversed(block) if not l.lstrip().startswith(">"))
 
 
 def tools_of(text):
-    """Every tool whose marker appears as a real footer line, outside fences and quotes."""
-    text = QUOTE.sub("", FENCE.sub("", text or ""))
-    return {name for name, marker in TOOL_MARKERS if marker.search(text)}
+    """Every tool whose marker appears in the footer block of a PR body or review."""
+    block = footer(text)
+    return {name for name, marker in TOOL_MARKERS if marker.search(block)}
+
+
+def commit_tools(commits):
+    return {m.group(1).lower() for c in commits for m in CO_AUTHOR.finditer(c.get("messageBody") or "")}
 
 
 def ci_failures(checks):
@@ -68,7 +83,7 @@ def failures(pr):
     out += ci_failures(pr["statusCheckRollup"] or [])
 
     bot = BOT_AUTHORS.get(pr["author"]["login"])
-    author_tools = {bot} if bot else tools_of(pr["body"])
+    author_tools = {bot} if bot else tools_of(pr["body"]) | commit_tools(pr["commits"])
     if not bot:
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
@@ -93,12 +108,13 @@ def main(argv):
     number = args[0]
     raw = subprocess.run(["gh", "pr", "view", number, "--json", FIELDS],
                          check=True, capture_output=True, text=True).stdout
-    failed = failures(json.loads(raw))
+    pr = json.loads(raw)
+    failed = failures(pr)
     if failed:
         print("\n".join(failed))
         return 1
     if not dry:
-        subprocess.run(["gh", "pr", "merge", number, "--squash"], check=True)
+        subprocess.run(["gh", "pr", "merge", number, "--squash", "--match-head-commit", pr["headRefOid"]], check=True)
     return 0
 
 

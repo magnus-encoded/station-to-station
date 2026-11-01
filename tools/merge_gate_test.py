@@ -33,6 +33,8 @@ def pr(**over):
         "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}],
         "reviews": [review("Codex")],
         "files": [{"path": "tools/merge-gate"}],
+        "commits": [{"messageBody": ""}],
+        "headRefOid": "abc123",
     }
     base.update(over)
     return base
@@ -50,7 +52,7 @@ class MergeGateTest(unittest.TestCase):
             env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
                        GH_LOG=str(tmp / "log"), GH_PR=str(tmp / "pr.json"))
             result = subprocess.run([str(GATE), "7", *args], env=env, capture_output=True, text=True)
-            return result, "pr merge 7 --squash" in (tmp / "log").read_text()
+            return result, "pr merge 7 --squash --match-head-commit abc123" in (tmp / "log").read_text()
 
     def assertMerges(self, data):
         result, merged = self.run_gate(data)
@@ -103,9 +105,26 @@ class MergeGateTest(unittest.TestCase):
         body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
         self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
 
-    def test_marker_in_a_code_fence_is_not_a_footer(self):
-        body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n"
+    def test_marker_before_the_footer_block_is_prose(self):
+        body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n\nMore notes.\n"
         self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
+
+    def test_commit_coauthor_trailer_adds_an_author_tool(self):
+        commits = [{"messageBody": "Co-Authored-By: Codex <noreply@openai.com>"}]
+        self.assertRefuses(pr(commits=commits, reviews=[review("Codex")]), "no-review")
+
+    def test_merge_is_pinned_to_the_validated_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            gh = tmp / "gh"
+            gh.write_text(FAKE_GH)
+            gh.chmod(0o755)
+            (tmp / "pr.json").write_text(json.dumps(pr()))
+            (tmp / "log").touch()
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}",
+                       GH_LOG=str(tmp / "log"), GH_PR=str(tmp / "pr.json"))
+            subprocess.run([str(GATE), "7"], env=env, capture_output=True, text=True)
+            self.assertIn("--match-head-commit abc123", (tmp / "log").read_text())
 
     def test_review_that_quotes_a_marker_does_not_count(self):
         r = {"author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
