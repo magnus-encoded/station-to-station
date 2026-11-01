@@ -50,6 +50,21 @@ final class TourControllerTests: XCTestCase {
         }
     }
 
+    func testAddingByHandOnAnEmptyLineAdvancesToTheBandStep() {
+        withSettings { settings in
+            let host = FakeState()
+            let controller = TourController(host: host, settings: settings,
+                                            connectivity: Connectivity(online: true), demoWorld: World())
+            controller.start()
+            controller.send(.acknowledged)
+            XCTAssertTrue(host.state.setlists.isEmpty)
+            XCTAssertTrue(host.state.plannedGigs.isEmpty)
+            controller.send(.curtainPulled)
+            XCTAssertEqual(host.state.tourStep, .s3)
+            XCTAssertEqual(host.state.tourCoachMark, .band)
+        }
+    }
+
     func testKilledTourRestoresTheStepAndCoachMarkEvenOffline() {
         withSettings { settings in
             let first = TourController(host: FakeState(), settings: settings,

@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +50,7 @@ fun TourOverlay(viewModel: AppViewModel, content: @Composable () -> Unit) {
         } else if (state.tour.running) {
             CoachMarkCard(
                 mark = state.coachMark,
+                emptyLine = state.setlists.isEmpty() && state.plannedGigs.isEmpty(),
                 onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
                 onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
@@ -62,6 +66,7 @@ fun TourCoachMarkInline(viewModel: AppViewModel) {
     if (!state.tour.running) return
     CoachMarkCard(
         mark = state.coachMark,
+        emptyLine = state.setlists.isEmpty() && state.plannedGigs.isEmpty(),
         onAcknowledge = { viewModel.tour.dispatch(TourEvent.Acknowledged) },
         onSkip = { viewModel.tour.dispatch(TourEvent.Skipped) },
         modifier = Modifier.padding(bottom = 12.dp),
@@ -73,11 +78,12 @@ fun TourCoachMarkInline(viewModel: AppViewModel) {
  * line and Skip only; each step's issue gives its mark the gesture it waits for.
  */
 @Composable
-private fun CoachMarkCard(
+internal fun CoachMarkCard(
     mark: CoachMark?,
     onAcknowledge: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    emptyLine: Boolean = false,
 ) {
     Column(
         modifier
@@ -88,12 +94,22 @@ private fun CoachMarkCard(
     ) {
         Text(TOUR_FRIEND, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text(mark?.let(::line) ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
+        Text(mark?.let { line(it, emptyLine) } ?: "One moment…", color = Ink, fontFamily = FontFamily.Serif, fontSize = 18.sp)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onSkip) { Text("Skip", color = Muted) }
+            TextButton(
+                onClick = onSkip,
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Skip" },
+            ) {
+                Text("Skip", color = Muted, modifier = Modifier.clearAndSetSemantics {})
+            }
             if (mark == CoachMark.Line) {
-                TextButton(onClick = onAcknowledge) { Text("Got it", color = Amber) }
+                TextButton(
+                    onClick = onAcknowledge,
+                    modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Got it" },
+                ) {
+                    Text("Got it", color = Amber, modifier = Modifier.clearAndSetSemantics {})
+                }
             }
         }
     }
@@ -129,9 +145,11 @@ private fun BoxScope.UpgradePromptCard(onAccept: () -> Unit, onDismiss: () -> Un
 // Placeholders: the Virtual friend's name and writing are owned by a human (#607).
 private const val TOUR_FRIEND = "Your friend"
 
-private fun line(mark: CoachMark): String = when (mark) {
+/** The Curtain step names the by-hand door only where it exists: a **Line** with no **Gigs** yet. */
+internal fun line(mark: CoachMark, emptyLine: Boolean = false): String = when (mark) {
     CoachMark.Line -> "This is your line. Down is back in time, up is what's coming."
-    CoachMark.Curtain -> "Pull down from the top to plan a gig."
+    CoachMark.Curtain ->
+        if (emptyLine) "Tap “or add a gig by hand” to plan a gig." else "Pull down from the top to plan a gig."
     CoachMark.Band -> "Who do you want to see?"
     CoachMark.AddGig -> "Add the gig."
     CoachMark.OpenRoom -> "Tap the gig to open its Room."
