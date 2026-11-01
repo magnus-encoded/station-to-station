@@ -19,8 +19,8 @@ MARK = {"Claude": "🤖 Generated with [Claude Code](https://claude.com/claude-c
 VISUAL = [{"path": "android/app/src/main/java/app/ui/BillScreen.kt"}]
 
 
-def review(tool, extra="", state="APPROVED", login="reviewer"):
-    return {"author": {"login": login}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
+def review(tool, extra="", state="APPROVED", login="reviewer", oid="abc123"):
+    return {"commit": {"oid": oid}, "author": {"login": login}, "state": state, "body": f"LGTM\n{extra}\n{MARK[tool]}\n"}
 
 
 def pr(**over):
@@ -84,7 +84,7 @@ class MergeGateTest(unittest.TestCase):
         self.assertRefuses(pr(reviews=[review("Claude")]), "no-review")
 
     def test_review_without_a_tool_footer_does_not_count(self):
-        self.assertRefuses(pr(reviews=[{"author": {"login": "r"}, "state": "APPROVED", "body": "LGTM"}]), "no-review")
+        self.assertRefuses(pr(reviews=[{"commit": {"oid": "abc123"}, "author": {"login": "r"}, "state": "APPROVED", "body": "LGTM"}]), "no-review")
 
     def test_comment_only_review_does_not_count(self):
         self.assertRefuses(pr(reviews=[review("Codex", state="COMMENTED")]), "no-review")
@@ -98,12 +98,26 @@ class MergeGateTest(unittest.TestCase):
 
     def test_owner_approval_counts_for_a_pr_by_two_tools(self):
         body = BODY + MARK["Codex"] + "\n"
-        owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
+        owner = {"commit": {"oid": "abc123"}, "author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
         self.assertMerges(pr(body=body, reviews=[owner]))
 
     def test_owner_account_approval_marked_with_the_author_tool_does_not_count(self):
         marked = review("Claude", login="magnus-encoded")
         self.assertRefuses(pr(reviews=[marked]), "no-review")
+
+    def test_later_changes_requested_overrides_an_earlier_approval(self):
+        reviews = [review("Codex"), review("Codex", state="CHANGES_REQUESTED")]
+        self.assertRefuses(pr(reviews=reviews), "changes-requested", "no-review")
+
+    def test_changes_requested_by_another_reviewer_blocks_despite_an_approval(self):
+        reviews = [review("Codex"), review("Claude", state="CHANGES_REQUESTED", login="other")]
+        self.assertRefuses(pr(reviews=reviews), "changes-requested")
+
+    def test_later_approval_clears_earlier_changes_requested(self):
+        self.assertMerges(pr(reviews=[review("Codex", state="CHANGES_REQUESTED"), review("Codex")]))
+
+    def test_approval_of_an_older_commit_needs_re_review(self):
+        self.assertRefuses(pr(reviews=[review("Codex", oid="old999")]), "no-review")
 
     def test_marker_in_a_blockquote_is_not_a_footer(self):
         body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
@@ -114,7 +128,7 @@ class MergeGateTest(unittest.TestCase):
         self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
 
     def test_body_without_a_footer_is_refused_even_with_an_owner_approval(self):
-        owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
+        owner = {"commit": {"oid": "abc123"}, "author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
         self.assertRefuses(pr(body="Closes #12\n", reviews=[owner]), "body-footer")
 
     def test_commit_trailers_alone_do_not_satisfy_the_footer(self):
@@ -134,7 +148,7 @@ class MergeGateTest(unittest.TestCase):
         self.assertRefuses(pr(reviews=[r]), "unparseable-body", "no-review")
 
     def test_owner_approval_mentioning_a_marker_anywhere_is_not_human(self):
-        quoted = {"author": {"login": "magnus-encoded"}, "state": "APPROVED",
+        quoted = {"commit": {"oid": "abc123"}, "author": {"login": "magnus-encoded"}, "state": "APPROVED",
                   "body": "    " + MARK["Claude"] + "\n\nok"}
         self.assertRefuses(pr(reviews=[quoted]), "no-review")
 
@@ -160,7 +174,7 @@ class MergeGateTest(unittest.TestCase):
             self.assertIn("--match-head-commit abc123", (tmp / "log").read_text())
 
     def test_review_that_quotes_a_marker_does_not_count(self):
-        r = {"author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
+        r = {"commit": {"oid": "abc123"}, "author": {"login": "r"}, "state": "APPROVED", "body": "> " + MARK["Codex"]}
         self.assertRefuses(pr(reviews=[r]), "no-review")
 
     def test_missing_closes_line_is_refused(self):

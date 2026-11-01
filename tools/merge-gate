@@ -13,8 +13,10 @@ against mistakes by cooperative agents, not against adversaries.
 Author tools: marker lines (`Generated with [Claude Code]`, `Written by Codex`) in the
 PR body's final paragraph, required; Co-Authored-By trailers on the PR's commits add
 to the set; `dependabot` for its PRs.
-Reviewer: an approving review whose markers lie outside that set, or an approval by the
-repo owner with no marker text at all (agents post as the owner, so a marker always wins). The rules are the constants below, so a policy change is one edit.
+Reviewer: a reviewer's latest review, approving the validated head commit, with
+markers outside that set; or, from the repo owner, with no marker text at all (agents
+post as the owner, so a marker always wins). Any latest CHANGES_REQUESTED refuses.
+The rules are the constants below, so a policy change is one edit.
 """
 import fnmatch
 import json
@@ -88,6 +90,18 @@ def is_outside(review, author_tools):
     return review["author"]["login"] == OWNER and not mentions_marker(review["body"])
 
 
+def latest_reviews(reviews):
+    """Each reviewer's last decisive review, one per account and marker set.
+
+    A later CHANGES_REQUESTED or dismissal overrides an earlier approval; comments do not.
+    """
+    latest = {}
+    for r in reviews:
+        if r["state"] in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+            latest[(r["author"]["login"], frozenset(tools_of(r["body"])))] = r
+    return list(latest.values())
+
+
 def failures(pr):
     """Every unmet condition for this PR, one `<code>: <reason>` string each."""
     out = []
@@ -110,7 +124,12 @@ def failures(pr):
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
 
-    approvals = [r for r in pr["reviews"] if r["state"] == "APPROVED" and is_outside(r, author_tools)]
+    latest = latest_reviews(pr["reviews"])
+    if any(r["state"] == "CHANGES_REQUESTED" for r in latest):
+        out.append("changes-requested: a reviewer's latest review requests changes")
+    # An approval of an older commit needs re-review after a push.
+    approvals = [r for r in latest if r["state"] == "APPROVED"
+                 and (r.get("commit") or {}).get("oid") == pr["headRefOid"] and is_outside(r, author_tools)]
     if not approvals:
         out.append("no-review: no approving review by a tool other than the author tool")
     if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):
