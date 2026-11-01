@@ -235,7 +235,7 @@ internal fun CheckInDialog(gig: FmSetlist, onCheckIn: () -> Unit, onDismiss: () 
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Checking in records that you were at it — on this phone, nowhere else.",
+                "A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others.",
                 color = Faint,
                 fontSize = 11.sp,
             )
