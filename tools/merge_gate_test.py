@@ -103,11 +103,17 @@ class MergeGateTest(unittest.TestCase):
 
     def test_marker_in_a_blockquote_is_not_a_footer(self):
         body = "Closes #12\n\n> " + MARK["Claude"] + "\n"
-        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "author-unknown")
 
     def test_marker_before_the_footer_block_is_prose(self):
         body = "Closes #12\n\n```\n" + MARK["Claude"] + "\n```\n\nMore notes.\n"
-        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "body-footer")
+        self.assertRefuses(pr(body=body, reviews=[review("Codex")]), "author-unknown")
+
+    def test_unknown_author_tool_is_refused_unless_the_owner_approved(self):
+        body = "Closes #12\n"
+        self.assertRefuses(pr(body=body), "author-unknown")
+        owner = {"author": {"login": "magnus-encoded"}, "state": "APPROVED", "body": "ok"}
+        self.assertMerges(pr(body=body, reviews=[owner]))
 
     def test_commit_coauthor_trailer_adds_an_author_tool(self):
         commits = [{"messageBody": "Co-Authored-By: Codex <noreply@openai.com>"}]

@@ -87,10 +87,11 @@ def failures(pr):
     if not bot:
         if not CLOSES.search(pr["body"] or ""):
             out.append("body-closes: body has no `Closes #n` line")
-        if not author_tools:
-            out.append("body-footer: body has no author-tool marker")
 
     approvals = [r for r in pr["reviews"] if r["state"] == "APPROVED" and is_outside(r, author_tools)]
+    owner_approved = any(r["state"] == "APPROVED" and r["author"]["login"] == OWNER for r in pr["reviews"])
+    if not author_tools and not owner_approved:
+        out.append("author-unknown: author tool unknown (no footer marker or Co-Authored-By trailer)")
     if not approvals:
         out.append("no-review: no approving review by a tool other than the author tool")
     if any(fnmatch.fnmatch(f["path"], p) for f in pr["files"] for p in VISUAL_PATHS):
