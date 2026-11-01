@@ -20,7 +20,7 @@ struct CheckInDialog: View {
                 .font(.system(size: 19, design: .serif)).foregroundStyle(ink)
             Text("\(gig.artist?.name ?? "This show") at \(gig.venue?.name ?? "the venue"), tonight.")
                 .font(.system(size: 13)).foregroundStyle(muted)
-            Text("Checking in records that you were at it — on this phone, nowhere else.")
+            Text("A check-in says you were at this gig. While you're checked in, nearby phones may carry what you log to others.")
                 .font(.system(size: 11)).foregroundStyle(faint)
             Spacer(minLength: 12)
             HStack {
