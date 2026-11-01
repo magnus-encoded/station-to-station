@@ -206,9 +206,7 @@ struct NightGrid: View {
             // One frame around the band's contents, in the band's own colour, drawn
             // at rest and not only under a drag. Android's strips have always had
             // this; without it iOS's two bands are told apart by a 10pt label alone,
-            // and a wrapping grid — unlike Android's one-row strip — puts that label
-            // three rows of thumbnails away from the boundary it marks. The more
-            // media a night holds, the less a label alone can carry.
+            // and the label alone is too small to mark a boundary.
             //
             // The gesture changes *this* frame rather than adding a second: two
             // outlines around one band is one boundary drawn twice.
@@ -219,11 +217,18 @@ struct NightGrid: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 4) {
-                        ForEach(mine, id: \.id) { media in tile(media, band: band) }
-                        ForEach(received, id: \.id) { media in tile(media, band: band) }
+                    // One scrolling row of fixed-size tiles, as Android's MediaBand
+                    // draws it: the tile's size is set here, never by its picture, so
+                    // nothing grows past the frame or over its neighbour.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: BandMetrics.gap) {
+                            ForEach(mine, id: \.id) { media in tile(media, band: band) }
+                            ForEach(received, id: \.id) { media in tile(media, band: band) }
+                        }
+                        .padding(.horizontal, BandMetrics.contentInsetH)
+                        .padding(.vertical, BandMetrics.contentInsetV)
                     }
-                    .padding(6)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
             }
             .background(targeted ? accent.opacity(0.12) : Color.clear,
@@ -232,7 +237,7 @@ struct NightGrid: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(accent, lineWidth: targeted ? 2 : 1)
             )
-            .padding(.horizontal, 20)
+            .padding(.horizontal, BandMetrics.frameInset)
         }
         .padding(.vertical, 6)
     }
@@ -403,6 +408,17 @@ extension Band: Identifiable {
 
 /// One keepsake, drawn from the durable tier. The library is never asked: that is
 /// what makes the grid of a night still render once the original is gone.
+/// A band's measures, Android's MediaBand's (`GigPhotoSize`, `ItemGap` and the
+/// strip's paddings in GigMedia.kt), so the two platforms' bands are the same size.
+enum BandMetrics {
+    static let tile: CGFloat = 108
+    static let gap: CGFloat = 10
+    static let corner: CGFloat = 10
+    static let contentInsetH: CGFloat = 20
+    static let contentInsetV: CGFloat = 4
+    static let frameInset: CGFloat = 8
+}
+
 private struct MediaTile: View {
     let mediaId: String
     let isVideo: Bool
@@ -414,22 +430,27 @@ private struct MediaTile: View {
     @State private var image: UIImage?
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Rectangle().fill(raised)
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+        // The fixed frame comes first and the picture is laid over it. A
+        // scaledToFill image inside an aspectRatio(.fill) stack sized the stack to
+        // the picture, which is how tiles overflowed the band and each other.
+        raised
+            .frame(width: BandMetrics.tile, height: BandMetrics.tile)
+            .overlay {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
             }
-            if isVideo {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 16)).foregroundStyle(ink.opacity(0.9)).padding(6)
+            .overlay(alignment: .bottomLeading) {
+                if isVideo {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 16)).foregroundStyle(ink.opacity(0.9)).padding(6)
+                }
             }
-        }
-        .aspectRatio(1, contentMode: .fill)
-        .clipped()
-        .overlay(
-            RoundedRectangle(cornerRadius: 2)
-                .stroke(mine ? amber : slate, lineWidth: 1.5)
-        )
+            .clipShape(RoundedRectangle(cornerRadius: BandMetrics.corner))
+            .overlay(
+                RoundedRectangle(cornerRadius: BandMetrics.corner)
+                    .strokeBorder(mine ? amber : slate, lineWidth: 1.5)
+            )
         // The border is the whole of the mark, so a reader gets the same fact as a
         // sentence rather than not at all.
         .accessibilityLabel(isVideo
