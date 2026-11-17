@@ -58,7 +58,12 @@ final class ContactsControllerTests: XCTestCase {
                 XCTFail("Controller state did not settle within five seconds", file: file, line: line)
                 return
             }
-            try? await Task.sleep(for: .milliseconds(10))
+            do {
+                try await Task.sleep(for: .milliseconds(10))
+            } catch {
+                XCTFail("Cancelled while waiting for controller state", file: file, line: line)
+                return
+            }
         }
     }
 
