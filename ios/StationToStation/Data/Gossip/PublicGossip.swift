@@ -3,6 +3,8 @@ import CryptoKit
 
 let publicGossipHeader = "station-to-station/gossip-fact/2"
 let publicGossipPassHeader = "station-to-station/gossip-pass/2"
+let PUBLIC_MAX_SEEN = 8192
+let PUBLIC_MAX_FACTS = 20_000
 let publicCarryMs: Int64 = 15 * 60 * 1000
 
 /// How long one receipt's credit for a neighbour survives (#444, story 41).
@@ -70,7 +72,7 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
     func sameGig(_ other: GossipEnvelope) -> Bool {
         !(Set(formerIds + [gigId]).intersection(other.formerIds + [other.gigId])).isEmpty
     }
-    func valid() -> Bool {
+    func valid(verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) -> Bool {
         guard isSafeGossipId(gigId), isSafeGossipId(scope), formerIds.count <= 32,
               formerIds.allSatisfy(isSafeGossipId), ["log", "request", "witness", "receipt", "update"].contains(kind),
               (-1...4096).contains(line), createdAt >= 0, expiresAt > createdAt,
@@ -78,7 +80,7 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
               attribution.utf8.count <= 1024, signature.utf8.count <= 256, record().utf8.count <= 8192,
               fields().allSatisfy({ !$0.contains("\n") && !$0.contains("\t") }),
               id == gossipHash(payload()), let signature = Data(base64Encoded: signature),
-              verifyChallenge(payload(), signature: signature, publicKeyBase64: author)
+              verify(payload(), signature, author)
         else { return false }
         if kind == "log" && (line < 0 || text.utf8.count > 512) { return false }
         if kind == "request" && line != -1 { return false }
@@ -89,7 +91,7 @@ struct GossipEnvelope: Codable, Equatable, Identifiable {
         if ["witness", "receipt"].contains(kind) && line != -1 { return false }
         if kind == "witness" {
             guard let claim = decodePublicEnvelope(text), claim.kind == "request", claim.author != author,
-                  claim.valid(), sameGig(claim), createdAt >= claim.createdAt,
+                  claim.valid(verify: verify), sameGig(claim), createdAt >= claim.createdAt,
                   createdAt < claim.expiresAt, expiresAt <= claim.expiresAt else { return false }
         }
         return true
@@ -186,6 +188,19 @@ struct PublicGossipState: Codable {
     /// asserting something it cannot see. See `seenWith(gigIds:live:)`.
     var metDevices: [String: [String: Int64]] = [:]
 
+    var verifiedIds: Set<String> = []
+
+    private enum CodingKeys: String, CodingKey {
+        case facts, seen, held, blocked, recognition, useful, localAuthors, contactNames, metDevices
+    }
+
+    // Only retained, unblocked Facts qualify; a copied id still needs identical signed bytes.
+    private func valid(_ envelope: GossipEnvelope, verify: (Data, Data, String) -> Bool) -> Bool {
+        let retained = envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope
+        if retained && verifiedIds.contains(envelope.id) { return true }
+        return envelope.valid(verify: verify)
+    }
+
     init() {}
 
     /// Every field read with `decodeIfPresent`, because Swift's synthesized `init(from:)`
@@ -218,11 +233,18 @@ struct PublicGossipState: Codable {
         recognition[author].map { live[$0] ?? contactNames[$0] } ?? nil
     }
 
-    mutating func recognizeContacts(_ contacts: Set<String>, names: [String: String] = [:]) {
+    mutating func recognizeContacts(_ contacts: Set<String>, names: [String: String] = [:], verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) {
         let envelopes = Array(facts.values) + held.values.map(\.envelope)
-        let claims = envelopes.filter { $0.kind == "witness" && $0.valid() }.compactMap { decodePublicEnvelope($0.text) }
-        for envelope in envelopes + claims where recognition[envelope.author] == nil {
-            if envelope.valid(), let durable = recognizeGossip(envelope, contacts: contacts) {
+        let validated = envelopes.filter { envelope in
+            guard valid(envelope, verify: verify) else { return false }
+            if envelope.kind != "receipt" && !isBlocked(envelope.author) && facts[envelope.id] == envelope {
+                verifiedIds.insert(envelope.id)
+            }
+            return true
+        }
+        let claims = validated.filter { $0.kind == "witness" }.compactMap { decodePublicEnvelope($0.text) }
+        for envelope in validated + claims where recognition[envelope.author] == nil {
+            if let durable = recognizeGossip(envelope, contacts: contacts) {
                 recognition[envelope.author] = durable
             }
         }
@@ -238,18 +260,34 @@ struct PublicGossipState: Codable {
         seen = seen.filter { $0.value > now }
         held = held.filter { $0.value.until > now && $0.value.envelope.expiresAt > now }
         useful = useful.filter { $0.value > now }
+        capFacts(now: now)
+        verifiedIds.formIntersection(Set(facts.keys).union(held.keys))
     }
     @discardableResult
-    mutating func receive(_ envelope: GossipEnvelope, from: String, now: Int64, local: Bool = false) -> Bool {
+    mutating func receive(_ envelope: GossipEnvelope, from: String, now: Int64, local: Bool = false, localGigIds: Set<String> = [], contacts: Set<String> = [], verify: (Data, Data, String) -> Bool = { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) -> Bool {
         prune(now: now)
-        guard envelope.valid(), envelope.expiresAt > now, envelope.createdAt <= now + 300000 else { return false }
+        guard valid(envelope, verify: verify), envelope.expiresAt > now, envelope.createdAt <= now + 300000 else { return false }
         // The transport has proved `from`; only the author can deliver one-hop controls.
         if !local && ["request", "receipt"].contains(envelope.kind) && from != envelope.author { return false }
         if seen[envelope.id] != nil { held.removeValue(forKey: envelope.id); return false }
-        guard seen.count < 8192 else { return false }
+        guard seen.count < PUBLIC_MAX_SEEN else { return false }
         seen[envelope.id] = envelope.expiresAt
-        if envelope.kind != "receipt" && !isBlocked(envelope.author) { facts[envelope.id] = envelope }
         if local { localAuthors.insert(envelope.author) }
+        let claim = envelope.kind == "witness" ? decodePublicEnvelope(envelope.text) : nil
+        for fact in [envelope, claim].compactMap({ $0 }) where recognition[fact.author] == nil {
+            if let durable = recognizeGossip(fact, contacts: contacts) { recognition[fact.author] = durable }
+        }
+        let updates = held.values.map(\.envelope) + [envelope]
+        let candidates = envelope.kind == "update" ? updates : [envelope]
+        for fact in candidates where fact.kind != "receipt" && !isBlocked(fact.author) {
+            let claim = fact.kind == "witness" ? decodePublicEnvelope(fact.text) : nil
+            if (local && fact == envelope) || !linkedIds(fact, updates: updates).isDisjoint(with: localGigIds) ||
+                claim.map({ !linkedIds($0, updates: updates).isDisjoint(with: localGigIds) }) == true {
+                facts[fact.id] = fact
+                if fact == envelope { verifiedIds.insert(fact.id) }
+            }
+        }
+        capFacts(now: now)
         if local || !["request", "receipt"].contains(envelope.kind) {
             held[envelope.id] = PublicHeld(envelope: envelope, until: min(envelope.expiresAt, now + publicCarryMs), delivered: [from])
             while held.count > 128 || held.values.reduce(0, { $0 + $1.envelope.record().utf8.count }) > 128000 {
@@ -268,6 +306,23 @@ struct PublicGossipState: Codable {
         }
         return true
     }
+    /// Evict strangers expired-first, then by creation time and id; keep Contact and own signers.
+    private mutating func capFacts(now: Int64) {
+        let excess = facts.count - PUBLIC_MAX_FACTS
+        guard excess > 0 else { return }
+        let candidates = facts.values.filter { fact in
+            recognition[fact.author] == nil && !localAuthors.contains(fact.author)
+        }.sorted {
+            let left = ($0.expiresAt > now ? 1 : 0, $0.createdAt, $0.id)
+            let right = ($1.expiresAt > now ? 1 : 0, $1.createdAt, $1.id)
+            return left < right
+        }
+        for fact in candidates.prefix(excess) {
+            facts.removeValue(forKey: fact.id)
+            verifiedIds.remove(fact.id)
+        }
+    }
+
     mutating func offer(to peer: String, now: Int64, participationEnds: [String: Int64] = [:]) -> [GossipEnvelope] {
         prune(now: now)
         // The encoder owns the byte budget, including the actual relay proof header.
@@ -284,19 +339,29 @@ struct PublicGossipState: Codable {
     mutating func delivered(to peer: String, ids: [String]) {
         for id in ids { held[id]?.delivered.insert(peer) }
     }
-    func project(gigIds: Set<String>) -> [GossipEnvelope] {
+    func project(gigIds: Set<String>, comparedUpdate: () -> Void = {}) -> [GossipEnvelope] {
         let scopes = Dictionary(grouping: facts.values, by: { $0.author + "\n" + $0.scope })
         let latestInScope = scopes.mapValues { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
+        let updates = Dictionary(grouping: facts.values.filter { $0.kind == "update" }, by: { $0.author + "\n" + $0.scope })
+        let matchingIds = updates.mapValues { values -> Set<String> in
+            var ids = gigIds
+            for update in values.sorted(by: { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }) {
+                comparedUpdate()
+                if ids.contains(update.gigId) { ids.formUnion(update.formerIds) }
+            }
+            return ids
+        }
+        func links(_ fact: GossipEnvelope) -> Bool {
+            let ids = matchingIds[fact.author + "\n" + fact.scope] ?? gigIds
+            return (fact.formerIds + [fact.gigId]).contains(where: ids.contains)
+        }
         let eligible = facts.values.filter { fact in
             guard !isBlocked(fact.author) else { return false }
             let latest = latestInScope[fact.author + "\n" + fact.scope].flatMap { $0 }
-            var ids = linkedIds(fact).union(latest.map { Set($0.formerIds + [$0.gigId]) } ?? [])
-            // A witness is authored by whoever stood there, so its own author signed no
-            // **Update** — the link to the adopted id lives on the claim it carries.
-            if fact.kind == "witness", let claim = decodePublicEnvelope(fact.text) {
-                ids.formUnion(linkedIds(claim))
-            }
-            return !ids.intersection(gigIds).isEmpty
+            if links(fact) || latest.map({ !(Set($0.formerIds + [$0.gigId]).intersection(gigIds)).isEmpty }) == true { return true }
+            // A witness follows the claim's Updates even when its own author signed no Update.
+            if fact.kind == "witness", let claim = decodePublicEnvelope(fact.text) { return links(claim) }
+            return false
         }
         let lines = Dictionary(grouping: eligible, by: { $0.author + "\n" + $0.scope + "\n" + ($0.kind == "log" ? "line:\($0.line)" : $0.id) })
         return lines.values.compactMap { $0.max(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) }
@@ -399,7 +464,7 @@ struct PublicGossipState: Codable {
     /// Repeats are a timestamp move, never a second entry: `metDevices` is keyed by device.
     mutating func rememberPass(with peer: String, batch: [GossipEnvelope], activeGigId: String?, now: Int64) {
         guard !peer.isEmpty else { return }
-        let claimed = Set(batch.filter { $0.kind == "request" && $0.author == peer && $0.valid() }
+        let claimed = Set(batch.filter { $0.kind == "request" && $0.author == peer && valid($0, verify: { verifyChallenge($0, signature: $1, publicKeyBase64: $2) }) }
             .flatMap { linkedIds($0) })
         let gigs = claimed.isEmpty ? Set([activeGigId].compactMap { $0 }) : claimed
         for gig in gigs {
@@ -486,9 +551,9 @@ struct PublicGossipState: Codable {
     /// **Update** may relabel only the assertions its own signer already made. Nobody else's
     /// **Update** can move a stranger's **Check-in** — or their witness — onto a **Gig** they
     /// chose. Applied oldest first, so a chain of adoptions resolves in the order it happened.
-    private func linkedIds(_ fact: GossipEnvelope) -> Set<String> {
+    private func linkedIds(_ fact: GossipEnvelope, updates: [GossipEnvelope] = []) -> Set<String> {
         var ids = Set(fact.formerIds + [fact.gigId])
-        for update in facts.values.filter({ $0.kind == "update" && $0.author == fact.author && $0.scope == fact.scope })
+        for update in (Array(facts.values) + updates).filter({ $0.kind == "update" && $0.author == fact.author && $0.scope == fact.scope })
             .sorted(by: { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }) {
             if update.formerIds.contains(where: ids.contains) { ids.insert(update.gigId) }
         }

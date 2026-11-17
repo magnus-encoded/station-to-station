@@ -28,11 +28,18 @@ struct ContactReconcilePlan: Equatable {
     /// mattering once it is theirs. Complete as they stand, like a **Note**: nothing is
     /// fetched for them. See `landNights` for where they go.
     var nights: [FmSetlist] = []
+    /// The hand-logged **Nights** their **Lane** on this phone holds that they no longer
+    /// offer: "I was there", taken back. Their manifest carries their whole **Spine**, so a
+    /// Night it leaves out is one they are not claiming any more — the same revision a
+    /// setlist.fm Lane makes when its "I was there" is unticked. Only Nights that arrived
+    /// on a **Reconcile**: setlist.fm's own are setlist.fm's to take back. See `withdrawNights`.
+    var withdrawn: [String] = []
 
     /// By id: `FmSetlist` is not `Equatable`, and the id is what makes two records one Night.
     static func == (a: ContactReconcilePlan, b: ContactReconcilePlan) -> Bool {
         a.held == b.held && a.fromGallery == b.fromGallery && a.noBytes == b.noBytes
             && a.request == b.request && a.nights.map(\.id) == b.nights.map(\.id)
+            && a.withdrawn == b.withdrawn
     }
 }
 
@@ -84,6 +91,10 @@ func contactReconcilePlan(
     // id is no Night, and one offered twice is taken once.
     var heldNights = Set(heldLane.map(\.id))
     let nights = offer.nights.filter { $0.id.nilIfBlank != nil && heldNights.insert($0.id).inserted }
+    // An empty Spine is read as no answer rather than as every Night taken back: it is
+    // what a manifest from before Nights travelled decodes to.
+    let offered = Set(offer.nights.map(\.id))
+    let withdrawn = offered.isEmpty ? [] : heldLane.filter { $0.isLocal && !offered.contains($0.id) }.map(\.id)
 
     let mineIds = Set(mine.gigMedia.values.flatMap { $0 }.map(\.id))
     var byHash: [String: String] = [:]
@@ -91,7 +102,7 @@ func contactReconcilePlan(
         byHash[item.hash] = item.ref
     }
 
-    var plan = ContactReconcilePlan(nights: nights)
+    var plan = ContactReconcilePlan(nights: nights, withdrawn: withdrawn)
     for item in offer.media {
         if !isSafeMediaId(item.id) {
             continue
@@ -309,6 +320,17 @@ extension TimelineCache {
         offer.declined = declined
         offer.media = []
         c.mediaOffers[night] = offer
+        return c
+    }
+
+    /// Their Nights `nights`, taken back (see `ContactReconcilePlan.withdrawn`): what they
+    /// had offered me for them goes with them, bytes and all. An offer is media waiting on
+    /// their Night, and with the Night gone there is nothing left to show it on. What I
+    /// already accepted stays — that is on a Night of mine now, and mine is not theirs to
+    /// revise. Android's `withdrawingOffers`.
+    func withdrawingOffers(_ nights: [String]) -> TimelineCache {
+        var c = self
+        for night in nights { c.mediaOffers[night] = nil }
         return c
     }
 }

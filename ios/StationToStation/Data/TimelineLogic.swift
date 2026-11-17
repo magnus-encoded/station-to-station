@@ -139,13 +139,18 @@ struct TimelineLogic {
     /// The seeded fixture wins outright and the store is never even read: it is
     /// the Spine for that run, and in CI the stored cache is empty, so reading it
     /// is precisely how a screenshot came back blank.
-    func loadSpine(me: String, onSpine: (LoadedSpine) -> Void) async {
+    ///
+    /// `onSpine` runs on the main actor. This function does not, and the caller writes
+    /// `AppModel.state` in it: called from here directly, that write ran on a pool
+    /// thread holding Combine's lock while SwiftUI waited on main, and main waited on
+    /// the lock to write its own — the black launch screen the watchdog then killed.
+    func loadSpine(me: String, onSpine: @MainActor (LoadedSpine) -> Void) async {
         if let seeded = await plumbing.seededSpine() {
-            onSpine(seeded)
+            await onSpine(seeded)
             return
         }
         guard var spine = await plumbing.storedSpine(me: me) else { return }
-        onSpine(spine)
+        await onSpine(spine)
 
         // A cached Spine may hold evenings whose Festival identity was never resolved
         // — the import failed the scrape, or predates it. Resolving only after a
@@ -153,7 +158,7 @@ struct TimelineLogic {
         let found = await resolveFestivals(mine: spine.mine, known: spine.festivals)
         if found == spine.festivals { return }
         spine.festivals = found
-        onSpine(spine)
+        await onSpine(spine)
     }
 
     /// Asks setlist.fm which **Festival**, if any, the unidentified evenings on `mine`

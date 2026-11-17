@@ -111,9 +111,9 @@ fun ExchangeScreen(
     // the radios, and opening it is the user saying they want to be found.
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { viewModel.startExchange() }
+    ) { viewModel.contacts.startExchange() }
     LaunchedEffect(Unit) {
-        permissionLauncher.launch(viewModel.exchangePermissions().toTypedArray())
+        permissionLauncher.launch(viewModel.contacts.exchangePermissions().toTypedArray())
     }
     // Being discoverable is opted into by standing here, not a background state — and
     // that goes for #257's LAN reconcile too, which is this screen's fourth radio rather
@@ -122,10 +122,10 @@ fun ExchangeScreen(
     // network for as long as the app was merely open — an app-foreground-wide trigger,
     // which is exactly what #257 excludes.
     DisposableEffect(Unit) {
-        viewModel.startContactExchange()
+        viewModel.contacts.startContactExchange()
         onDispose {
-            viewModel.stopExchange()
-            viewModel.stopContactExchange()
+            viewModel.contacts.stopExchange()
+            viewModel.contacts.stopContactExchange()
         }
     }
     // Whoever tapped, both phones leave for the woven view once the swap lands.
@@ -134,7 +134,7 @@ fun ExchangeScreen(
     // My share card for the QR/link fallback; null until I've set my username.
     var cardUri by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state.mySetlistFmUser, state.spotifyConnected) {
-        cardUri = viewModel.myCardUri()?.toString()
+        cardUri = viewModel.contacts.myCardUri()?.toString()
     }
 
     val peers = state.exchangePeers
@@ -161,7 +161,7 @@ fun ExchangeScreen(
         }
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = { refreshing = true; viewModel.restartExchange() },
+            onRefresh = { refreshing = true; viewModel.contacts.restartExchange() },
             modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
             Column(
@@ -190,7 +190,7 @@ fun ExchangeScreen(
                         peers = peers,
                         discovering = state.discovering,
                         discoverable = discoverable,
-                        onConnect = viewModel::connectWith,
+                        onConnect = viewModel.contacts::connectWith,
                     )
                 }
 
@@ -210,7 +210,7 @@ fun ExchangeScreen(
                         cardUri = cardUri,
                         username = state.mySetlistFmUser,
                         cardName = state.myCardName,
-                        onSaveCardName = viewModel::saveMyCardName,
+                        onSaveCardName = viewModel.contacts::saveMyCardName,
                         onSetUsername = onSetUsername,
                     )
                 }
@@ -601,7 +601,7 @@ fun FriendTimelineScreen(
                             setlist = setlist,
                             highlight = setlist.id == state.viewedFriendShows.first().id,
                             onClick = {
-                                viewModel.openShow(setlist)
+                                viewModel.navigation.openShow(setlist)
                                 onOpenEvent()
                             },
                         )

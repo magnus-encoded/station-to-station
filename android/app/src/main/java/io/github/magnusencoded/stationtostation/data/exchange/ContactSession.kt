@@ -70,8 +70,9 @@ fun runContactSession(
     heldLane: (contactKey: String) -> List<FmSetlist> = { emptyList() },
     /** Called with the verified Contact's key and the **Nights** of theirs I did not hold,
      * as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
-     * transfer that never finishes does not cost the Lane. Not called when there are none. */
-    landNights: (contactKey: String, nights: List<FmSetlist>) -> Unit = { _, _ -> },
+     * transfer that never finishes does not cost the Lane. [withdrawn] is the hand-logged
+     * Nights of theirs I hold that they no longer claim. Not called when both are empty. */
+    landNights: (contactKey: String, nights: List<FmSetlist>, withdrawn: List<String>) -> Unit = { _, _, _ -> },
     /** My own **Spine**: the Nights an offer could be about (#405). See [contactOffers]. */
     myNights: List<FmSetlist> = emptyList(),
     /** Called once the bytes are in with what they sent for Nights I have not joined:
@@ -84,7 +85,7 @@ fun runContactSession(
     val plan = contactReconcilePlan(
         mine, theirManifest, verified = true, gallery = gallery, heldLane = heldLane(contactKey),
     )
-    if (plan.nights.isNotEmpty()) landNights(contactKey, plan.nights)
+    if (plan.nights.isNotEmpty() || plan.withdrawn.isNotEmpty()) landNights(contactKey, plan.nights, plan.withdrawn)
 
     // Before the request round, not after it: everything a **Note** needs has already
     // arrived, and this is the earliest moment it can be written down.

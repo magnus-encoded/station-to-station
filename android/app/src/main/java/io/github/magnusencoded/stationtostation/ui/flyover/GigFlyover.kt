@@ -141,7 +141,7 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     // timelines are where that is known — so the lanes are asked for, cached-and-
     // complete being the common case, rather than presence being read off who happened
     // to hand over a photograph.
-    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    LaunchedEffect(Unit) { viewModel.contacts.loadFriendTimelines() }
     val night = remember(
         media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, witnessed,
         state.festivals,
@@ -170,8 +170,8 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
     Flyover(
         night = night,
-        loadThumb = viewModel::photoPreview,
-        loadFull = viewModel::fullPhoto,
+        loadThumb = viewModel.gigMedia::photoPreview,
+        loadFull = viewModel.gigMedia::fullPhoto,
         onBack = onBack,
     )
 }
@@ -197,7 +197,7 @@ fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several,
     // out — it is not this rung's only one.
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    LaunchedEffect(Unit) { viewModel.contacts.loadFriendTimelines() }
     val night = remember(
         node, state.mediaBySetlist, state.friends, state.logsByGig, state.showsByFriend,
         state.attendanceByGig, state.contactLight, state.festivals,
@@ -220,8 +220,8 @@ fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several,
 
     Flyover(
         night = night,
-        loadThumb = viewModel::photoPreview,
-        loadFull = viewModel::fullPhoto,
+        loadThumb = viewModel.gigMedia::photoPreview,
+        loadFull = viewModel.gigMedia::fullPhoto,
         onBack = onBack,
     )
 }

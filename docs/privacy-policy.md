@@ -1,6 +1,6 @@
 # Privacy Policy — Station to Station
 
-Last updated: 28 September 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
+Last updated: 5 October 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
 
 Station to Station is a personal record of concerts you have attended. This policy
 describes what the app does with your data.
@@ -113,7 +113,8 @@ two phones sync directly, with no server in between. Each sends the other:
 - **the nights you have been at** — the date, act and venue of each, whether imported
   from setlist.fm or added by hand. Not what was played, your log, your notes, your
   tickets, or gigs you are planning to go to. This is how a contact without a setlist.fm
-  account still has a line beside yours.
+  account still has a line beside yours. The list is sent whole each time, so a night you
+  added by hand and later delete leaves their phone at your next sync.
 - **the photos, clips and notes you have shared.** You choose these one by one; anything
   you keep in a night's private vault is never sent.
 
@@ -177,7 +178,9 @@ disables that feature.
 ## Deleting your data
 
 Uninstall the app. Everything it stored is removed with it. Material you have already
-shared with a contact is on their device and is theirs to delete. Facts passed on at a gig
+shared with a contact is on their device and is theirs to delete, with one exception: a
+night you added by hand and then delete is removed from their phone the next time you
+sync, along with any photos you sent for it that they had not yet accepted. Facts passed on at a gig
 expire on their own at 06:00 the morning after. A copy in your phone's backup is deleted
 through your Google or Apple account.
 

@@ -95,7 +95,7 @@ fun HandoverScreen(viewModel: AppViewModel, onDone: () -> Unit) {
     // but the system back gesture and a pop from anywhere else do not, and a handover left
     // running behind a closed screen is a listening socket and an open connection nobody can
     // see or stop.
-    DisposableEffect(Unit) { onDispose { viewModel.dismissHandover() } }
+    DisposableEffect(Unit) { onDispose { viewModel.handover.dismissHandover() } }
 
     Scaffold(
         containerColor = Ground,
@@ -121,9 +121,9 @@ fun HandoverScreen(viewModel: AppViewModel, onDone: () -> Unit) {
         ) {
             when {
                 handover.receipt != null || handover.error != null -> Outcome(handover, onDone)
-                handover.role == HandoverRole.SOURCE -> Offering(handover, viewModel::cancelHandover)
-                handover.role == HandoverRole.RECEIVER -> Receiving(handover, viewModel::cancelHandover)
-                else -> WhatGoes(onOffer = viewModel::offerHandover)
+                handover.role == HandoverRole.SOURCE -> Offering(handover, viewModel.handover::cancelHandover)
+                handover.role == HandoverRole.RECEIVER -> Receiving(handover, viewModel.handover::cancelHandover)
+                else -> WhatGoes(onOffer = viewModel.handover::offerHandover)
             }
             Spacer(Modifier.height(32.dp))
         }

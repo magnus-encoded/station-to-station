@@ -918,17 +918,32 @@ actor TimelineStore {
     }()
 
     /// The cache as last written. Empty (never nil) on first run or an unreadable
-    /// file — a corrupt cache must cost the timeline, not the launch.
+    /// file — a corrupt cache must cost the timeline, not the launch. An unreadable
+    /// file is moved aside to `timelines.corrupt-<epoch ms>.json`, bytes untouched,
+    /// before the empty cache is returned: every write is a transform of this, so
+    /// leaving it in place would let the next save replace every hand-logged **Gig**
+    /// with nothing.
     ///
     /// #107's migration is applied on read rather than as a one-shot upgrade step:
     /// there is no schema version to hang one off, and this way an old cache
     /// restored onto the device later migrates too. It is a no-op once `gigs` is
     /// populated, which the first write after a migration makes permanent.
     func load() -> TimelineCache {
+        guard FileManager.default.fileExists(atPath: file.path) else { return TimelineCache() }
         guard let data = try? Data(contentsOf: file),
               let cache = try? JSONDecoder().decode(TimelineCache.self, from: data)
-        else { return TimelineCache() }
+        else {
+            quarantine()
+            return TimelineCache()
+        }
         return cache.migrated()
+    }
+
+    private func quarantine() {
+        let stem = file.deletingPathExtension().lastPathComponent
+        let millis = Int64(Date().timeIntervalSince1970 * 1000)
+        let aside = file.deletingLastPathComponent().appendingPathComponent("\(stem).corrupt-\(millis).json")
+        try? FileManager.default.moveItem(at: file, to: aside)
     }
 
     /// Merges into what is already stored and writes it back. Merging, not
@@ -1271,15 +1286,24 @@ actor TimelineStore {
 
     /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
     /// `laneKey` (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
-    /// no account draws offline the way a fetched one does. Adds, never removes: see
-    /// `landNights`. The twin of Android's `mergeContactNights`.
-    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist]) {
-        if laneKey.nilIfBlank == nil || nights.isEmpty { return }
+    /// no account draws offline the way a fetched one does. `withdrawn` leaves it again,
+    /// with whatever was offered me for it (`withdrawingOffers`). Returns the Lane as
+    /// written, for the screen to take whole, and that media, so its bytes can be deleted
+    /// once it is out of the cache. The twin of Android's `mergeContactNights`.
+    @discardableResult
+    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist],
+                            _ withdrawn: [String] = []) -> (lane: [FmSetlist]?, dropped: [StoredMedia]) {
+        if laneKey.nilIfBlank == nil || (nights.isEmpty && withdrawn.isEmpty) { return (nil, []) }
+        var lane: [FmSetlist]?
+        var dropped: [StoredMedia] = []
         writeMerged { cache in
-            var c = cache
-            c.shows[laneKey] = landNights(c.shows[laneKey], nights)
+            dropped = withdrawn.flatMap { cache.mediaOffers[$0]?.media ?? [] }
+            var c = cache.withdrawingOffers(withdrawn)
+            c.shows[laneKey] = withdrawNights(landNights(c.shows[laneKey], nights), withdrawn)
+            lane = c.shows[laneKey]
             return c
         }
+        return (lane, dropped)
     }
 
     /// The union a device handover decided, written under this actor's own lock (#142).
@@ -1492,7 +1516,29 @@ extension TimelineCache {
     /// `attendanceByGig` allowed for a local id there too, but #34 — the only
     /// thing that would ever have minted one — was never built, so no cache in
     /// existence contains one.
-    func migrated() -> TimelineCache { withGigs().withMedia() }
+    func migrated() -> TimelineCache { withGigs().withMedia().withPastTicketsAttended() }
+
+    /// The repair for a **Ticket** shared after its night: before the fix, every ticket
+    /// import wrote `planned`, so a ticket for a night already gone sat above today with
+    /// a hollow marker and nothing would ever make it attended.
+    ///
+    /// A planned **Gig** holding an Admission and created on a day after its own night is
+    /// that record: nobody plans a night that has passed. Needs no flag — once raised, a
+    /// record no longer matches. The Kotlin twin is `withPastTicketsAttended`.
+    func withPastTicketsAttended(calendar: Calendar = .current) -> TimelineCache {
+        var c = self
+        for (gigId, attendance) in gigAttendance {
+            guard attendance.provenance == "planned", !attendance.admissions.isEmpty,
+                  let gig = gigs[gigId], gig.createdAt > 0 else { continue }
+            let date = gig.date.isEmpty ? (gigPlanned[gigId]?.eventDate ?? "") : gig.date
+            guard let night = isoDate(fromFm: date) else { continue }
+            let created = Date(timeIntervalSince1970: TimeInterval(gig.createdAt) / 1000)
+            if night < isoToday(created, calendar: calendar) {
+                c.gigAttendance[gigId] = attendance.withProvenance("attended")
+            }
+        }
+        return c
+    }
 
     private func withGigs() -> TimelineCache {
         guard gigs.isEmpty else { return self }

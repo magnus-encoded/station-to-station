@@ -218,7 +218,7 @@ class ContactSessionTest {
             mediaSource = { null },
             receivedFile = { _, _ -> File.createTempFile("unused", ".bin") },
             heldLane = { key -> if (key == serverPublic) listOf(held) else emptyList() },
-            landNights = { key, nights -> landed += key to nights.map { it.id } },
+            landNights = { key, nights, _ -> landed += key to nights.map { it.id } },
         )
         serverThread.join(5000)
         server.close()

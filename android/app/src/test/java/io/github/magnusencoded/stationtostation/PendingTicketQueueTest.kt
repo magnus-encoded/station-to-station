@@ -1,6 +1,8 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.ParsedTicket
+import io.github.magnusencoded.stationtostation.features.tickets.answeringTicket
+import io.github.magnusencoded.stationtostation.features.tickets.queuingTicket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull

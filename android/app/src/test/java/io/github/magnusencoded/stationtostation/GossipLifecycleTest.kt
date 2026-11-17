@@ -103,8 +103,8 @@ class GossipLifecycleTest {
         }!!
         val endedFact = fact(ended)
         val activeFact = fact(active)
-        assertTrue(state.receive(endedFact, "supplier", cutoff - 1000))
-        assertTrue(state.receive(activeFact, "supplier", cutoff - 1000))
+        assertTrue(state.receive(endedFact, "supplier", cutoff - 1000, localGigIds = setOf(ended, active)))
+        assertTrue(state.receive(activeFact, "supplier", cutoff - 1000, localGigIds = setOf(ended, active)))
         val deadlines = gossipParticipationEnds(store)
         assertEquals(2, state.offer("peer", cutoff - 1, deadlines).size)
         assertEquals(listOf(activeFact.id), state.offer("peer", cutoff, deadlines).map { it.id })
@@ -177,7 +177,7 @@ class GossipLifecycleTest {
         val duringGrace = done + 600_000
         val gossip = gossipStore("encore")
         val theirs = foreignFact(gigId, line = 1, text = "Evolve", at = duringGrace)
-        gossip.updatePublic(duringGrace) { assertTrue(it.receive(theirs, "supplier", duringGrace)) }
+        gossip.updatePublic(duringGrace) { assertTrue(it.receive(theirs, "supplier", duringGrace, localGigIds = setOf(gigId))) }
 
         // Nothing about this device's own night moved: same Log, same completion, same deadline.
         assertEquals(mine, timeline.load().logs()[gigId])
@@ -203,7 +203,7 @@ class GossipLifecycleTest {
         assertEquals(end, gossipActiveUntil(timeline, gossip.stoppedAt()))
 
         val fact = foreignFact(gigId, line = 0, text = "Qué Más Quieres", at = checked + 60_000)
-        gossip.updatePublic(checked + 60_000) { it.receive(fact, "supplier", checked + 60_000) }
+        gossip.updatePublic(checked + 60_000) { it.receive(fact, "supplier", checked + 60_000, localGigIds = setOf(gigId)) }
 
         val stoppedAt = checked + 120_000
         assertNull(gossipStop(timeline, gossip, stoppedAt))
@@ -234,7 +234,7 @@ class GossipLifecycleTest {
             val id = timeline.gig(tonight, done - 3600_000, StoredLog().adding("Choke", done - 60_000).completing(true, done))
             withGossipStore(prefs) { gossip ->
                 val at = done + 60_000
-                gossip.updatePublic(at) { it.receive(foreignFact(id, 1, "Evolve", at), "supplier", at) }
+                gossip.updatePublic(at) { it.receive(foreignFact(id, 1, "Evolve", at), "supplier", at, localGigIds = setOf(id)) }
                 assertEquals(expected, gossipActiveUntil(timeline, gossip.stoppedAt()))
             }
             id
@@ -437,7 +437,7 @@ class GossipLifecycleTest {
 
         // And the **Fact** itself is filed under the night it names, not the one being stood at.
         val fact = foreignFact(other, line = 0, text = "Qué Más Quieres", at = at)
-        assertTrue(state.receive(fact, "a-relay", at))
+        assertTrue(state.receive(fact, "a-relay", at, localGigIds = setOf(selected, other)))
         assertEquals(listOf(fact.id), state.project(setOf(other)).map { it.id })
         assertTrue(state.project(setOf(selected)).isEmpty())
     }

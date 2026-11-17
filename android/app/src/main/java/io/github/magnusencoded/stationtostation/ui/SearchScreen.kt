@@ -135,14 +135,14 @@ private fun ArtistTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = state.artistQuery,
-                onValueChange = viewModel::setArtistQuery,
+                onValueChange = viewModel.setlists::setArtistQuery,
                 label = { Text("Artist name") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { viewModel.searchArtists() }),
+                keyboardActions = KeyboardActions(onSearch = { viewModel.setlists.searchArtists() }),
             )
-            IconButton(onClick = { viewModel.searchArtists() }) {
+            IconButton(onClick = { viewModel.setlists.searchArtists() }) {
                 Icon(Icons.Default.Search, contentDescription = "Search")
             }
         }
@@ -160,7 +160,7 @@ private fun ArtistTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
                         ?.takeIf { it.isNotBlank() }
                         ?.let { { Text(it) } },
                     modifier = Modifier.clickable {
-                        viewModel.openArtist(artist)
+                        viewModel.setlists.openArtist(artist)
                         onOpenSetlists()
                     },
                 )
@@ -184,18 +184,18 @@ private fun UserTab(viewModel: AppViewModel, onOpenSetlists: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = state.userQuery,
-                onValueChange = viewModel::setUserQuery,
+                onValueChange = viewModel.setlists::setUserQuery,
                 label = { Text("setlist.fm user ID") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
-                    viewModel.openUserAttended()
+                    viewModel.setlists.openUserAttended()
                     onOpenSetlists()
                 }),
             )
             IconButton(onClick = {
-                viewModel.openUserAttended()
+                viewModel.setlists.openUserAttended()
                 onOpenSetlists()
             }) {
                 Icon(Icons.Default.Search, contentDescription = "Load")

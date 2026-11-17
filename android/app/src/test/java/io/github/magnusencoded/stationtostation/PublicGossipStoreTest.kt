@@ -13,6 +13,28 @@ import java.io.File
 class PublicGossipStoreTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun transactionsReuseVerificationButAReopenedStoreVerifiesAgain() = runBlocking {
+        val file = File(temporary.root, "verification.preferences_pb")
+        val envelope = logFact("scope", "gig", 0, "Song", 1000)
+        var calls = 0
+        val verify: (ByteArray, ByteArray, String) -> Boolean = { p, s, a ->
+            calls++
+            io.github.magnusencoded.stationtostation.data.exchange.verifyChallenge(p, s, a)
+        }
+        withStore(file) { store ->
+            store.updatePublic(2000) { assertTrue(it.receive(envelope, "relay", 2000, verify = verify, localGigIds = setOf("gig"))) }
+            repeat(2) { store.updatePublic(2000) { it.recognizeContacts(emptySet(), verify = verify) } }
+            assertEquals(1, calls)
+            val snapshot = store.publicStates.first()
+            snapshot.facts.clear()
+            assertEquals(1, store.publicStates.first().facts.size)
+        }
+        withStore(file) { store ->
+            repeat(2) { store.updatePublic(2000) { it.recognizeContacts(emptySet(), verify = verify) } }
+            assertEquals(2, calls)
+        }
+    }
+
     @Test fun authorScopeSurvivesConcurrentCallersExpiryAndRestart() = runBlocking {
         val file = File(temporary.root, "scopes.preferences_pb")
         val job = SupervisorJob()
@@ -150,7 +172,7 @@ class PublicGossipStoreTest {
         try {
             coroutineScope {
                 launch { author.updatePublic(now) { it.receive(envelopes[0], "", now, local = true) } }
-                launch { radio.updatePublic(now) { it.receive(envelopes[1], "supplier", now) } }
+                launch { radio.updatePublic(now) { it.receive(envelopes[1], "supplier", now, localGigIds = setOf(envelopes[1].gigId)) } }
             }
             assertEquals(2, author.publicStates.first().facts.size)
             radio.updatePublic(now) { it.delivered("recipient", listOf(envelopes[0].id)) }

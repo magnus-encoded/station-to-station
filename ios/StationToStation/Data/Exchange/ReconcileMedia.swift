@@ -135,6 +135,13 @@ extension PhotoLibrary {
         return dir.appendingPathComponent("\(id).\(kind == StoredMedia.Kind.video ? "mp4" : "jpg")")
     }
 
+    /// Something that arrived on a reconcile, gone: its file and both thumbnail tiers.
+    /// A gallery match has no file of ours, so only its thumbnails go.
+    static func deleteReceivedMedia(_ media: StoredMedia) {
+        try? FileManager.default.removeItem(at: receivedMediaFile(id: media.id, kind: media.kind))
+        deleteThumbnails(media.id)
+    }
+
     /// Both thumbnail tiers for something that arrived through a reconcile rather than
     /// through **Attach**.
     ///

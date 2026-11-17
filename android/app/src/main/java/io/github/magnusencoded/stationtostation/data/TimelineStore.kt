@@ -1027,7 +1027,10 @@ class TimelineStore(
 
     /**
      * The cache as last written, with #107's migration applied. Empty (never null)
-     * on first run or unreadable file.
+     * on first run or unreadable file. An unreadable file is moved aside to
+     * `timelines.corrupt-<epoch ms>.json`, bytes untouched, before the empty cache is
+     * returned: every write is a transform of this, so leaving it in place would let
+     * the next save replace every hand-logged **Gig** with nothing.
      *
      * Migrating on read rather than in a one-shot upgrade step: there is no schema
      * version to hang one off, and this way an old cache restored onto the device
@@ -1037,8 +1040,13 @@ class TimelineStore(
     suspend fun load(): TimelineCache = withContext(Dispatchers.IO) {
         if (!file.exists()) return@withContext TimelineCache()
         runCatching { json.decodeFromString<TimelineCache>(file.readText()) }
-            .getOrDefault(TimelineCache())
+            .getOrElse { quarantine(); TimelineCache() }
             .migrated(mimeOf)
+    }
+
+    private fun quarantine() {
+        val aside = File(file.parentFile, "${file.nameWithoutExtension}.corrupt-${System.currentTimeMillis()}.json")
+        runCatching { Files.move(file.toPath(), aside.toPath()) }
     }
 
     /**
@@ -1162,12 +1170,26 @@ class TimelineStore(
     /**
      * A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
      * [laneKey] (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
-     * no account draws offline the way a fetched one does. Adds, never removes: see
-     * [landNights].
+     * no account draws offline the way a fetched one does. [withdrawn] leaves it again,
+     * with whatever was offered me for it ([withdrawingOffers]). Returns the Lane as
+     * written, for the screen to take whole, and that media, so its bytes can be deleted
+     * once it is out of the cache.
      */
-    suspend fun mergeContactNights(laneKey: String, nights: List<FmSetlist>): Unit = writeMerged { c ->
-        if (laneKey.isBlank() || nights.isEmpty()) return@writeMerged c
-        c.copy(shows = c.shows + (laneKey to landNights(c.shows[laneKey], nights)))
+    suspend fun mergeContactNights(
+        laneKey: String,
+        nights: List<FmSetlist>,
+        withdrawn: List<String> = emptyList(),
+    ): Pair<List<FmSetlist>?, List<StoredMedia>> {
+        var lane: List<FmSetlist>? = null
+        var dropped = emptyList<StoredMedia>()
+        writeMerged { c ->
+            if (laneKey.isBlank() || (nights.isEmpty() && withdrawn.isEmpty())) return@writeMerged c
+            dropped = withdrawn.flatMap { c.mediaOffers[it]?.media.orEmpty() }
+            val held = withdrawNights(landNights(c.shows[laneKey], nights), withdrawn)
+            lane = held
+            c.copy(shows = c.shows + (laneKey to held)).withdrawingOffers(withdrawn)
+        }
+        return lane to dropped
     }
 
     /**
@@ -1509,7 +1531,34 @@ class TimelineStore(
  * minted one — was never built, so no cache in existence contains one.
  */
 internal fun TimelineCache.migrated(mimeOf: ((String) -> String?)? = null): TimelineCache =
-    withGigs().withMedia(mimeOf).withBands().withFestivals()
+    withGigs().withMedia(mimeOf).withBands().withFestivals().withPastTicketsAttended()
+
+/**
+ * The repair for a **Ticket** shared after its night: before the fix,
+ * every ticket import wrote `planned`, so a ticket for a night already gone sat above
+ * today with a hollow marker and nothing would ever make it attended.
+ *
+ * A planned **Gig** holding an Admission and created on a day after its own night is
+ * that record: nobody plans a night that has passed. Needs no flag — once raised, a
+ * record no longer matches.
+ */
+internal fun TimelineCache.withPastTicketsAttended(): TimelineCache {
+    val zone = java.time.ZoneId.systemDefault()
+    val raised = gigAttendance.filter { (gigId, attendance) ->
+        val gig = gigs[gigId] ?: return@filter false
+        if (attendance.provenance != StoredAttendance.Provenance.PLANNED) return@filter false
+        if (attendance.admissions.isEmpty() || gig.createdAt <= 0L) return@filter false
+        val night = gig.date.ifBlank { gigPlanned[gigId]?.eventDate.orEmpty() }
+            .let(::parseFmDate) ?: return@filter false
+        night < java.time.Instant.ofEpochMilli(gig.createdAt).atZone(zone).toLocalDate()
+    }
+    if (raised.isEmpty()) return this
+    return copy(
+        gigAttendance = gigAttendance + raised.mapValues {
+            it.value.withProvenance(StoredAttendance.Provenance.ATTENDED)
+        },
+    )
+}
 
 /**
  * #162's upgrade: the night-level grant becomes each item's own bit.

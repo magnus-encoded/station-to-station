@@ -16,6 +16,38 @@ so, before any feature, and the fuller account has a **Privacy.** paragraph.
 Every version listed under "What has changed" in the
 [privacy policy](docs/privacy-policy.md#what-has-changed) is checked for this.
 
+## 1.12.1 — 2026-10-07
+
+<!-- play -->
+Fix: if the saved timeline can't be read, it is now set aside instead of being overwritten, so no gigs are lost.
+Fix: a bug where imported tickets with a past date would get stuck as a planned event near the current events.
+<!-- /play -->
+
+**Fixes.** If the app's saved timeline can't be read, it is kept aside on the
+phone, untouched, instead of being overwritten by the next save. Imported
+tickets with a past date no longer get stuck as a planned event near the
+current events; ones already stuck are fixed when the app opens. Behind the scenes,
+the iPhone app has been reorganised to match Android, with no change to how it
+works.
+
+## 1.12.0 — 2026-10-05
+
+<!-- play -->
+Delete a gig you added by hand and it leaves your contacts' phones at the next sync. One "Add a gig" form, "I was there too" on a contact's gig, and long-press to delete or open on setlist.fm. Syncing on the same WiFi works again, with the Exchange screen open on both phones.
+<!-- /play -->
+
+**Taking a gig back.** A hand-added gig you delete leaves your line on a
+Contact's phone at the next sync, with any photos they had not yet accepted.
+
+**Adding and joining.** One "Add a gig" form; the date decides whether you were
+there or are going. A Contact's gig offers "I was there too".
+
+**Long-press.** Delete a gig, or open it on setlist.fm.
+
+**Fixes.** Syncing with a Contact works again on Android. Their whole setlist.fm
+history shows. Hand-added gigs can be checked into. No more doubled rows beside
+festivals, and no black screen at launch on iOS.
+
 ## 1.11.0 — 2026-09-28
 
 <!-- play -->

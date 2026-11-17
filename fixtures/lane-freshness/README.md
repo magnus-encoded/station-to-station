@@ -10,7 +10,6 @@ Each case gives:
 - `username`: the Contact's setlist.fm username. Blank is no username.
 - `held`: the Lane I already hold, as the `dd-MM-yyyy` dates of its Nights. `null` (or
   left out) is nothing held; `[]` is a Lane setlist.fm answered with no Nights in it.
-- `myOldest`: my own oldest Gig, `dd-MM-yyyy`, or `null` when I have none.
 - `fetch`: what `laneNeedsFetch` must answer.
 
 ## What these cannot show

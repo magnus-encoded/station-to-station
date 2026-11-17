@@ -149,23 +149,25 @@ fun spineNights(
  * - no username: false. There is no address to fetch from, and whatever is held is all
  *   there is.
  * - nothing held: true.
- * - stops short of me: true. A Lane whose oldest Night is newer than my own oldest
- *   ([myOldest]) may be a truncated page, not a whole history. An empty Lane stops
- *   short of nothing.
+ * - whole pages: true. A Lane's setlist.fm Nights counting a whole number of pages
+ *   may be one cut short — a Lane held from before the whole history was fetched
+ *   stopped at my own oldest Gig, always on a page boundary. Anything else is their
+ *   whole history. Hand-logged Nights from the Reconcile are not setlist.fm's and
+ *   are not counted.
  * - otherwise: false.
  *
- * ponytail: a Contact whose whole history is newer than my first Gig looks short every
- * time, so zooming out costs them one page fetch each — the fetch stops on the first
- * page because it has their whole list. Store their reported total if that one call
- * ever matters.
+ * ponytail: a whole history that happens to be whole pages long is fetched again on
+ * every zoom-out. Store their reported total if that ever matters.
  */
-fun laneNeedsFetch(contact: Friend, held: List<FmSetlist>?, myOldest: LocalDate?): Boolean {
+fun laneNeedsFetch(contact: Friend, held: List<FmSetlist>?): Boolean {
     if (contact.setlistfm.isBlank()) return false
     if (held == null) return true
-    if (held.isEmpty() || myOldest == null) return false
-    val theirOldest = held.mapNotNull { it.localDate() }.minOrNull() ?: return true
-    return theirOldest > myOldest
+    val fromSetlistFm = held.count { !it.isLocal() }
+    return fromSetlistFm > 0 && fromSetlistFm % ATTENDED_PAGE_SIZE == 0
 }
+
+/** Nights per page of an Attended list, as setlist.fm serves it. */
+const val ATTENDED_PAGE_SIZE = 20
 
 /**
  * What I hold after [fetched] Lanes land on top of [held]: each fetched Lane replaces
@@ -216,6 +218,17 @@ fun landNights(held: List<FmSetlist>?, received: List<FmSetlist>): List<FmSetlis
     val fresh = received.filter { it.id.isNotBlank() && ids.add(it.id) }
     if (fresh.isEmpty()) return had
     return (had + fresh).sortedByDescending { it.localDate() }
+}
+
+/**
+ * A **Contact**'s **Lane** with the Nights they took back on a **Reconcile** taken out
+ * ([ContactReconcilePlan.withdrawn]). Hand-logged Nights only, whatever [withdrawn] names:
+ * a setlist.fm Night is only ever revised by setlist.fm.
+ */
+fun withdrawNights(held: List<FmSetlist>?, withdrawn: Collection<String>): List<FmSetlist> {
+    val had = held.orEmpty()
+    val gone = withdrawn.toSet()
+    return had.filterNot { it.isLocal() && it.id in gone }
 }
 
 /** dd-MM-yyyy, the one date shape this app and setlist.fm both speak. */

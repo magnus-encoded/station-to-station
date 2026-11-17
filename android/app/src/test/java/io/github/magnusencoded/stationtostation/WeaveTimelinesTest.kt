@@ -107,6 +107,30 @@ class WeaveTimelinesTest {
         assertTrue(rows.none { it.shared })
     }
 
+    /**
+     * My festival and my single gig the same evening at the same venue, the gig outside
+     * the festival identity: their copy of that gig is the same record as my gig, so it
+     * joins my gig, not my festival — else my gig reads mine-only right under a shared
+     * festival row holding the very same gig.
+     */
+    @Test
+    fun `their copy of my gig joins my gig, not my festival that same evening`() {
+        val rows = weaveTimelines(
+            mine = listOf(
+                show("a1", "13-08-2026", "Tøyenparken"),
+                show("a2", "13-08-2026", "Tøyenparken"),
+                show("me", "13-08-2026", "Tøyenparken"),
+            ),
+            festivals = festival("a1", "a2"),
+            friends = listOf(lemmy),
+            theirs = mapOf("Lemmy" to listOf(show("me", "13-08-2026", "Tøyenparken"))),
+        )
+        val gig = rows.single { r -> r.node !is TimelineNode.Festival }
+        assertTrue(gig.shared)
+        assertEquals(listOf(lemmy), gig.others)
+        assertFalse(rows.single { r -> r.node is TimelineNode.Festival }.shared)
+    }
+
     @Test
     fun `a night only they were at gets its own row and leaves my spine bare`() {
         val rows = weaveTimelines(

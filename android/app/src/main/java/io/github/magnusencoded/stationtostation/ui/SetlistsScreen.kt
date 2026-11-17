@@ -83,7 +83,7 @@ fun SetlistsScreen(
                         },
                         trailingContent = { Text("$songCount songs") },
                         modifier = Modifier.clickable(enabled = songCount > 0) {
-                            viewModel.selectSetlist(setlist)
+                            viewModel.playlist.selectSetlist(setlist)
                             onSetlistPicked()
                         },
                     )
@@ -100,7 +100,7 @@ fun SetlistsScreen(
                             Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.Center,
                         ) {
-                            OutlinedButton(onClick = { viewModel.loadMoreSetlists() }) {
+                            OutlinedButton(onClick = { viewModel.setlists.loadMoreSetlists() }) {
                                 Text("Load more (${state.setlists.size}/${state.setlistsTotal})")
                             }
                         }

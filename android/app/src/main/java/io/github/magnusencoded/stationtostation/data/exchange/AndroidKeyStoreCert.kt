@@ -29,7 +29,8 @@ import javax.security.auth.x500.X500Principal
  */
 private const val KEYSTORE_ALIAS_PREFIX = "handover-"
 
-/** Where a Contact reconcile session's own certificate lives (#257). Deliberately *not*
+/** The prefix every Contact reconcile session's own certificate lives under (#257), one
+ * alias per [generateContactSessionIdentity]. Deliberately *not*
  * the durable [contactIdentityPrivateKey]: that key was generated SHA-256-only and so
  * cannot sign a TLS handshake at all (see [selfSignedIdentity]), and it predates every
  * Contact already on a device, so it cannot be regenerated without breaking them. It
@@ -73,19 +74,29 @@ private fun selfSignedIdentity(alias: String, lifetimeMs: Long): Pair<X509Certif
 fun generateHandoverIdentity(sessionId: String): Pair<X509Certificate, KeyStore> =
     selfSignedIdentity(handoverAlias(sessionId), lifetimeMs = 10 * 60 * 1000L)
 
-/** A fresh certificate for one foreground reconcile session, replacing any leftover from a
- * session that never got to call [forgetContactSessionIdentity]. A day of validity rather
- * than ten minutes: this one lives as long as the screen stays open. */
-fun generateContactSessionIdentity(): Pair<X509Certificate, KeyStore> {
-    forgetContactSessionIdentity()
-    return selfSignedIdentity(CONTACT_SESSION_ALIAS, lifetimeMs = 24 * 60 * 60 * 1000L)
+/** A fresh certificate for one foreground reconcile session under an alias of its own,
+ * clearing any leftover from a session that never got to call [forgetContactSessionIdentity].
+ * A day of validity rather than ten minutes: this one lives as long as the screen stays open.
+ *
+ * **Its own alias, never a shared one.** With one fixed alias, the next session's key was
+ * minted over the same name the last one's cleanup deletes — and an `SSLContext` still
+ * holding the old key signs a handshake with a key the store no longer has: `Key
+ * permanently invalidated`, mid-handshake, and the Reconcile never happens. */
+fun generateContactSessionIdentity(): Triple<String, X509Certificate, KeyStore> {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore.aliases().toList()
+        .filter { it == CONTACT_SESSION_ALIAS || it.startsWith("$CONTACT_SESSION_ALIAS-") }
+        .forEach { runCatching { keyStore.deleteEntry(it) } }
+    val alias = "$CONTACT_SESSION_ALIAS-${java.util.UUID.randomUUID()}"
+    val (cert, store) = selfSignedIdentity(alias, lifetimeMs = 24 * 60 * 60 * 1000L)
+    return Triple(alias, cert, store)
 }
 
 /** Removes the ephemeral identity once the session is over — nothing here is meant to
  * outlive it, and `AndroidKeyStore` does not clean up after itself. */
 fun forgetHandoverIdentity(sessionId: String) = deleteAlias(handoverAlias(sessionId))
 
-fun forgetContactSessionIdentity() = deleteAlias(CONTACT_SESSION_ALIAS)
+fun forgetContactSessionIdentity(alias: String) = deleteAlias(alias)
 
 private fun deleteAlias(alias: String) {
     KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)

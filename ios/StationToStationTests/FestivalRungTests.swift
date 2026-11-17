@@ -36,12 +36,12 @@ final class FestivalRungTests: XCTestCase {
         XCTAssertEqual(1, collapsed.count)
         XCTAssertTrue(collapsed[0].node.isSeveral)
 
-        model.toggleFestival(collapsed[0].key)
+        model.navigation.toggleFestival(collapsed[0].key)
         let open = weaveTimelines(mine: mine, festivals: festivals,
                                   expanded: model.state.expandedFestivals)
         XCTAssertEqual(2, open.filter { $0.depth == 1 }.count) // its two gigs, listed under it
 
-        XCTAssertTrue(model.backOutOfFestivals())
+        XCTAssertTrue(model.navigation.backOutOfFestivals())
         XCTAssertEqual(collapsed.count,
                        weaveTimelines(mine: mine, festivals: festivals,
                                       expanded: model.state.expandedFestivals).count)
@@ -52,10 +52,10 @@ final class FestivalRungTests: XCTestCase {
     @MainActor
     func testBackOutLeavesTheRungWhateverIsOpenOnIt() {
         let model = AppModel()
-        model.toggleFestival("one")
-        model.toggleFestival("two")
+        model.navigation.toggleFestival("one")
+        model.navigation.toggleFestival("two")
 
-        XCTAssertTrue(model.backOutOfFestivals())
+        XCTAssertTrue(model.navigation.backOutOfFestivals())
         XCTAssertTrue(model.state.expandedFestivals.isEmpty)
     }
 
@@ -63,6 +63,6 @@ final class FestivalRungTests: XCTestCase {
     /// so the gesture reports it did nothing rather than silently swallowing itself.
     @MainActor
     func testWithNoFestivalOpenThereIsNothingToBackOutOf() {
-        XCTAssertFalse(AppModel().backOutOfFestivals())
+        XCTAssertFalse(AppModel().navigation.backOutOfFestivals())
     }
 }

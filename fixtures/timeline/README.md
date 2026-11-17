@@ -27,3 +27,21 @@ Each twin's test (`TimelineStoreTest` on Android, `TimelineStoreTests` on iOS) a
 
 Payloads are synthetic. Decoded, they are `SYNTHETIC-TIMELINE-QR-1`,
 `000000000000000000000021` and `SYNTHETIC-LEGACY-QR`.
+
+## `unreadable/`
+
+Two files neither twin can decode as a `timelines.json`:
+
+- **`truncated.json`**: a hand-logged **Gig** cut off mid-object, as a write interrupted by an
+  older build or a partial restore leaves it.
+- **`not-an-object.json`**: valid JSON, but an array where the cache is an object.
+
+Each twin's test (`TimelineQuarantineTest` on Android, `TimelineQuarantineTests` on iOS)
+copies each file in as `timelines.json` in an empty directory and asserts:
+
+1. `load()` returns an empty cache.
+2. The directory then holds exactly one other file, named `timelines.corrupt-<epoch ms>.json`,
+   with the original bytes unchanged.
+3. After a save, that file is still byte for byte the original, and `timelines.json` holds
+   only what was saved.
+4. A missing `timelines.json` (first run) quarantines nothing.

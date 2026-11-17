@@ -79,7 +79,7 @@ android {
         // ours. Losing it is recoverable (Play can reset an upload key); losing
         // the app signing key would not be, which is why we let Play keep it.
         //
-        // Credentials come from a gitignored keystore.properties, or from env
+        // Credentials come from a local, gitignored properties file, or from env
         // vars for CI. Absent on a machine that has neither, the config is not
         // created at all and `assembleRelease` produces an unsigned build rather
         // than failing — a contributor without the key can still compile release.

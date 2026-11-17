@@ -373,9 +373,14 @@ fun weaveTimelines(
         val shows = theirs[friend.laneKey].orEmpty()
         if (shows.isEmpty()) continue
         for (node in groupIntoFestivals(shows, festivals)) {
-            val at = hosts.indices.firstOrNull { i ->
-                hosts[i].hosts(node, festivals, joins, mineHost = i < myNodes.size)
-            }
+            // The same record before the same evening: a Festival of mine sharing this
+            // evening's venue would otherwise take a Gig of theirs that one of my own
+            // Gigs holds under its very id, drawing it Together on the Festival and
+            // mine-only on the Gig.
+            val at = hosts.indices.firstOrNull { i -> hosts[i].holdsSameRecord(node, joins) }
+                ?: hosts.indices.firstOrNull { i ->
+                    hosts[i].hosts(node, festivals, joins, mineHost = i < myNodes.size)
+                }
             val host = if (at != null) hosts[at] else node.also { hosts.add(it) }
             friendsAt.getOrPut(host) { mutableListOf() }
                 .let { if (it.none { f -> f.laneKey == friend.laneKey }) it.add(friend) }
@@ -503,6 +508,17 @@ private fun maybesBelowMine(
 }
 
 /**
+ * Whether this and [other] hold the same record: one identity, or one Gig under one id (or
+ * a Night I joined to it). The first half of [hosts], asked on its own so the weave can
+ * prefer it over a mere shared evening.
+ */
+private fun TimelineNode.holdsSameRecord(other: TimelineNode, joins: Map<String, String>): Boolean =
+    sameIdentity(other) ||
+        shows.any { a ->
+            other.shows.any { b -> a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id }
+        }
+
+/**
  * Whether [other]'s node belongs on this one rather than beside it — the same three
  * facts the grouping seam uses, read across two **Lines** instead of down one, so a
  * **Crossing** is decided by exactly what makes a **Node**:
@@ -527,10 +543,7 @@ private fun TimelineNode.hosts(
     joins: Map<String, String> = emptyMap(),
     mineHost: Boolean = false,
 ): Boolean =
-    sameIdentity(other) ||
-        shows.any { a ->
-            other.shows.any { b -> a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id }
-        } ||
+    holdsSameRecord(other, joins) ||
         (sameEvening(other) &&
             (!mineHost || shows.any { a -> other.shows.any { b -> !couldBeSameNight(a, b, festivals) } }))
 

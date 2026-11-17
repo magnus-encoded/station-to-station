@@ -380,7 +380,7 @@ struct ProgrammeView: View {
                 }
                 Spacer()
                 Button("Commit") {
-                    model.commitProgramme(programme, diff: diff, picked: picked, now: now)
+                    model.planning.commitProgramme(programme, diff: diff, picked: picked, now: now)
                     picked = []
                 }
                 .font(.system(size: 14, weight: .semibold))

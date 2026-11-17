@@ -42,11 +42,11 @@ final class FriendsLogicTests: XCTestCase {
     @MainActor
     func testZoomedOutRefusesToOpenWithNoFriends() {
         let model = AppModel()
-        model.setZoomedOut(true)
+        model.navigation.setZoomedOut(true)
         XCTAssertFalse(model.state.zoomedOut)
 
-        model.addFriend(Friend(setlistfm: "alice"))
-        model.setZoomedOut(true)
+        model.contacts.addFriend(Friend(setlistfm: "alice"))
+        model.navigation.setZoomedOut(true)
         XCTAssertTrue(model.state.zoomedOut)
     }
 

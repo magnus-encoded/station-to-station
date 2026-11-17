@@ -1,6 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
 import io.github.magnusencoded.stationtostation.data.MediaOffer
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -90,6 +91,18 @@ class TimelineStoreTest {
         store.mergeContactNights("key:0123456789abcdef", listOf(show("a")))
         store.mergeContactNights("key:0123456789abcdef", listOf(show("a"), show("b")))
         assertEquals(setOf("a", "b"), store.load().shows["key:0123456789abcdef"]?.map { it.id }?.toSet())
+    }
+
+    /** The screen takes the Lane whole from here, so it must be the Lane, not the Nights touched. */
+    @Test
+    fun `a withdrawal returns the whole lane as written`() = runBlocking {
+        val store = store()
+        store.mergeContactNights("dio", listOf(show("a"), show("b"), show("c")))
+
+        val (lane, _) = store.mergeContactNights("dio", emptyList(), withdrawn = listOf("a"))
+
+        assertEquals(setOf("b", "c"), lane?.map { it.id }?.toSet())
+        assertEquals(lane, store.load().shows["dio"])
     }
 
     /**
@@ -1319,4 +1332,19 @@ class TimelineStoreTest {
         assertEquals(listOf(held.gigForSetlist("other-fm-night")?.id), held.nightDismissals["their-night"])
     }
 
+    @Test
+    fun `a ticket planned after its night has passed loads as attended`() = runBlocking {
+        val store = store()
+        val past = store.createLocalGig("22-10-2024", "Øystein Sunde", "Folketeateret")
+        val future = store.createLocalGig("22-10-2099", "Øystein Sunde", "Folketeateret")
+        for (gigId in listOf(past, future)) {
+            store.savePlanned(localGigSetlist(gigId, "Øystein Sunde", parseFmDate(store.load().gigs.getValue(gigId).date)!!, "Folketeateret", city = ""))
+            store.attachAdmissions(gigId, listOf(StoredAdmission(payload = "cGF5bG9hZA==", symbology = "qr")))
+        }
+
+        val loaded = store.load().attendance()
+        assertEquals(StoredAttendance.Provenance.ATTENDED, loaded[past]?.provenance)
+        assertEquals(1, loaded[past]?.admissions?.size)
+        assertEquals(StoredAttendance.Provenance.PLANNED, loaded[future]?.provenance)
+    }
 }
