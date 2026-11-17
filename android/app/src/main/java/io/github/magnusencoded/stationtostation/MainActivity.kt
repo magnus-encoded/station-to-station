@@ -23,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -49,6 +51,14 @@ class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The mark on Ground stays up until the first screen has what it needs, so the
+        // launch goes straight from the icon to the settled timeline (or to onboarding)
+        // with nothing half-loaded in between. The cap is only a backstop: if reading
+        // the phone's own storage ever hangs, the app still opens.
+        val splashFrom = System.currentTimeMillis()
+        installSplashScreen().setKeepOnScreenCondition {
+            !viewModel.state.value.launched && System.currentTimeMillis() - splashFrom < SPLASH_CAP_MS
+        }
         super.onCreate(savedInstanceState)
         handleAuthIntent(intent)
         handleTicketIntent(intent)
@@ -58,6 +68,10 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(viewModel)
             }
         }
+    }
+
+    private companion object {
+        const val SPLASH_CAP_MS = 3_000L
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -80,8 +94,8 @@ class MainActivity : ComponentActivity() {
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
-            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.setZoomedOut(true)
-            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.setZoomedOut(false)
+            KeyEvent.KEYCODE_ZOOM_OUT, KeyEvent.KEYCODE_MINUS -> viewModel.navigation.setZoomedOut(true)
+            KeyEvent.KEYCODE_ZOOM_IN, KeyEvent.KEYCODE_PLUS -> viewModel.navigation.setZoomedOut(false)
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -89,27 +103,21 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        // Everything now rides one scheme, station-to-station. The old setlist2spotify
-        // scheme is still accepted so links shared before the rename keep resolving.
-        // The authority tells the deep links apart from a timeline place, whose
-        // authority is a line name (see AppViewModel.openGigLink) — a line literally
-        // named friend/gig/callback would collide, which is acceptable.
-        if (uri.scheme != "station-to-station" && uri.scheme != "setlist2spotify") return
-        when (uri.authority) {
-            "friend" -> viewModel.handleFriendLink(uri)
-            // The other phone's QR, read by whatever camera app the person pointed at it
-            // — the same trick a friend card uses, and the reason there is no in-app
-            // scanner and no camera permission on the receiving side (#142).
-            "handover" -> viewModel.joinHandover(uri)
-            "gig" -> viewModel.handleGigInvite(uri)
-            "callback" -> viewModel.handleAuthRedirect(uri)
-            // A ticketing provider's own confirmation page, linking straight to a gig
-            // with the fields it already knows rather than a PDF for this app to OCR
-            // (see AppViewModel.handleTicketLink) — station-to-station://ticket?artist=
-            // …&venue=…&date=…&qr=…, embeddable in a page the same way "open in app"
-            // links from other services are.
-            "ticket" -> viewModel.handleTicketLink(uri)
-            else -> viewModel.openGigLink(uri)
+        when (val link = parseDeepLink(uri.toString())) {
+            null -> Unit
+            is LinkIntent.PassThrough -> when (link.kind) {
+                PassThroughKind.FRIEND -> viewModel.contacts.handleFriendLink(uri)
+                // The other phone's QR, read by whatever camera app the person pointed at it
+                // — the same trick a friend card uses, and the reason there is no in-app
+                // scanner and no camera permission on the receiving side.
+                PassThroughKind.HANDOVER -> viewModel.handover.joinHandover(uri)
+                PassThroughKind.CALLBACK -> viewModel.settingsController.handleAuthRedirect(uri)
+                // A ticketing provider's own confirmation page, linking straight to a gig
+                // with the fields it already knows rather than a PDF for this app to OCR
+                // (see TicketsController.handleTicketLink).
+                PassThroughKind.TICKET -> viewModel.tickets.handleTicketLink(uri)
+            }
+            else -> viewModel.navigation.handleLink(link)
         }
     }
 
@@ -134,7 +142,7 @@ class MainActivity : ComponentActivity() {
             data = intent.data,
             clip = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri,
         ) ?: return
-        viewModel.handleSharedTicketPdf(uri)
+        viewModel.tickets.handleSharedTicketPdf(uri)
     }
 
     // Intent.getParcelableExtra(String) is deprecated from API 33 in favour of the
@@ -214,6 +222,20 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
+    // setlist.fm's automatic checks for local Gigs run while the app is in the
+    // foreground and only then (#531): at launch, on coming back, and on their timer.
+    LifecycleStartEffect(Unit) {
+        viewModel.setlists.startLookupChecks()
+        onStopOrDispose { viewModel.setlists.stopLookupChecks() }
+    }
+    // Nothing is drawn until launch has read the settings and the saved timeline (the
+    // system splash covers it), and then the first screen is the right one outright:
+    // onboarding only for someone who hasn't passed it, never as a flash on the way to
+    // the timeline. Ahead of the handover effect too, which needs the NavHost's graph.
+    val launch by remember(viewModel) { viewModel.state.map { it.launched to it.onboarded } }
+        .collectAsStateWithLifecycle(viewModel.state.value.let { it.launched to it.onboarded })
+    if (!launch.first) return
+    val startDestination = remember { if (launch.second) "timeline" else "splash" }
     // A handover can begin from outside any screen: the QR is read by the phone's camera
     // app, which opens the deep link, which starts the receiving side. Whatever was on
     // screen, that is the thing to be looking at.
@@ -233,7 +255,7 @@ fun AppNavigation(viewModel: AppViewModel) {
     // reads as the app changing rather than as one place leading to another.
     NavHost(
         navController = navController,
-        startDestination = "splash",
+        startDestination = startDestination,
         enterTransition = { slideInHorizontally(tween(280)) { it } + fadeIn(tween(200)) },
         exitTransition = { slideOutHorizontally(tween(280)) { -it / 5 } + fadeOut(tween(200)) },
         popEnterTransition = { slideInHorizontally(tween(280)) { -it / 5 } + fadeIn(tween(200)) },
@@ -267,11 +289,10 @@ fun AppNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onConnected = {
-                    // Back to the one timeline there is; it opens with their line showing.
                     navController.popBackStack("timeline", inclusive = false)
                 },
                 onViewFriend = { friend ->
-                    viewModel.viewFriendTimeline(friend)
+                    viewModel.contacts.viewFriendTimeline(friend)
                     navController.navigate("friend")
                 },
                 onSetUsername = { navController.navigate("import") },
@@ -350,7 +371,6 @@ fun AppNavigation(viewModel: AppViewModel) {
             SettingsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
-                onOpenBleProbe = { navController.navigate("bleprobe") },
                 onOpenHandover = { navController.navigate("handover") },
             )
         }
@@ -358,7 +378,7 @@ fun AppNavigation(viewModel: AppViewModel) {
             HandoverScreen(
                 viewModel = viewModel,
                 onDone = {
-                    viewModel.dismissHandover()
+                    viewModel.handover.dismissHandover()
                     navController.popBackStack()
                 },
             )
@@ -373,6 +393,22 @@ fun AppNavigation(viewModel: AppViewModel) {
                 onOpenSettings = { navController.navigate("settings") },
             )
         }
+    }
+    // A link names a screen from wherever the person is: back to the timeline first, so
+    // one command always starts from the same place.
+    val linkScreen by remember(viewModel) { viewModel.state.map { it.linkScreen } }
+        .collectAsStateWithLifecycle(null)
+    LaunchedEffect(linkScreen) {
+        val screen = linkScreen ?: return@LaunchedEffect
+        if (runCatching { navController.getBackStackEntry("timeline") }.isSuccess) {
+            navController.popBackStack("timeline", inclusive = false)
+            when (screen) {
+                LinkScreen.SETTINGS -> navController.navigate("settings")
+                LinkScreen.PROGRAMME -> navController.navigate("programme")
+                LinkScreen.TIMELINE, LinkScreen.TIMELINES -> Unit
+            }
+        }
+        viewModel.navigation.consumeLinkScreen()
     }
 }
 

@@ -78,14 +78,23 @@ struct SpineRow: View {
             if let onRemove {
                 Text("\u{00D7}").font(.system(size: 20)).foregroundStyle(faint)
                     .padding(.horizontal, 10)
-                    .accessibilityLabel("Remove")
                     .onTapGesture(perform: onRemove)
+                    // Folded into the row below as an action: a separate "Remove" stop
+                    // after every song does not say which song it removes (#164).
+                    .accessibilityHidden(true)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.trailing, 20)
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
+        // One stop per song: its number, its title, its note. The amber ring is the
+        // only thing that says my Log holds it, so that is said in words too (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(mine ? "in your log" : "")
+        .accessibilityAddTraits(onTap == nil ? [] : .isButton)
+        .accessibilityHint(onTap == nil ? "" : "Correct what this was called")
+        .accessibilityAction(ifNamed: onRemove == nil ? nil : "Remove from your log") { onRemove?() }
     }
 }
 
@@ -94,6 +103,8 @@ struct EncoreLabel: View {
         Text("\u{2014} ENCORE \u{2014}")
             .font(.system(size: 11, weight: .semibold)).kerning(2)
             .foregroundStyle(amber)
+            .accessibilityLabel("Encore")
+            .accessibilityAddTraits(.isHeader)
             .padding(.leading, 50).padding(.top, 4).padding(.bottom, 14)
     }
 }

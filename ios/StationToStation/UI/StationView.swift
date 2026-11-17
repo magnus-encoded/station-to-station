@@ -26,7 +26,7 @@ private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 /// each file keeps its own copy of the palette it needs.
 private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let lineCol = Color(red: 0x2E / 255, green: 0x27 / 255, blue: 0x40 / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution.
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
 /// A Crossing and the Joined run after it. A meeting belongs to neither person,
@@ -37,7 +37,7 @@ private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255
 /// not-green. Same list as Android's RailColors.
 private let laneColors: [Color] = [
     slate,
-    Color(red: 0x8A / 255, green: 0x6D / 255, blue: 0xA0 / 255),
+    Color(red: 0x8F / 255, green: 0x73 / 255, blue: 0xA4 / 255),
     Color(red: 0x5F / 255, green: 0x8E / 255, blue: 0x8A / 255),
     Color(red: 0xA0 / 255, green: 0x7E / 255, blue: 0x6D / 255),
     Color(red: 0x7B / 255, green: 0x8F / 255, blue: 0xC4 / 255),
@@ -45,7 +45,7 @@ private let laneColors: [Color] = [
     Color(red: 0x6E / 255, green: 0x9B / 255, blue: 0x77 / 255),
     Color(red: 0x9A / 255, green: 0x8F / 255, blue: 0x5F / 255),
 ]
-private func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
+func laneColor(_ index: Int) -> Color { laneColors[((index % laneColors.count) + laneColors.count) % laneColors.count] }
 
 /// The legend's `+ N more` disclosure never appears below this many names (#396):
 /// a floor, not a cap — every active Lane is always in the head regardless.
@@ -65,6 +65,9 @@ private struct RowsRecomputeModifier: ViewModifier {
     /// enough to know the underlying shows actually changed.
     let showIds: [String]
     let friendShowIds: [String: [String]]
+    /// What I said about a Contact's Night (#405): a join or a "not the same" redraws.
+    let joins: [String: String]
+    let apart: [String: Set<String>]
     let recompute: () -> Void
 
     func body(content: Content) -> some View {
@@ -75,6 +78,8 @@ private struct RowsRecomputeModifier: ViewModifier {
             .onChange(of: festivals) { _ in recompute() }
             .onChange(of: showIds) { _ in recompute() }
             .onChange(of: friendShowIds) { _ in recompute() }
+            .onChange(of: joins) { _ in recompute() }
+            .onChange(of: apart) { _ in recompute() }
     }
 }
 
@@ -84,6 +89,37 @@ private struct RowsRecomputeModifier: ViewModifier {
 // colour, and a private copy here deciding every path that was actually stroked.
 // Nothing made them agree. `linesAt`, `nodeHost`, `lineDrawnOffset`, `laneXf` and
 // `crossingX` are now the model's, and this file draws what they answer (#69).
+
+/// Runs `resolve` whenever a link's Gig or date is set, or the rows or Lanes it waits
+/// on change. One modifier for the same reason as `RowsRecomputeModifier`.
+private struct LinkResolveModifier: ViewModifier {
+    let gig: String?
+    let date: String?
+    let rowKeys: [String]
+    let lanesLoading: Bool
+    let resolve: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: resolve)
+            .onChange(of: gig) { _ in resolve() }
+            .onChange(of: date) { _ in resolve() }
+            .onChange(of: rowKeys) { _ in resolve() }
+            .onChange(of: lanesLoading) { _ in resolve() }
+    }
+}
+
+/// Takes an add-gig link when it arrives, and once on appearing for one that came first.
+private struct AddGigLinkModifier: ViewModifier {
+    let link: AddGigLink?
+    let take: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: take)
+            .onChange(of: link) { _ in take() }
+    }
+}
 
 struct StationView: View {
     @EnvironmentObject var model: AppModel
@@ -95,11 +131,15 @@ struct StationView: View {
     @State private var dragFraction: CGFloat?
     /// The entry point for the future edge (#175). A sheet's-worth of state, not
     /// model state: it exists only while the sheet is open.
-    @State private var addingPlanned = false
-    @State private var addingLocal = false
+    @State private var adding = false
+    @State private var deleteAsked: FmSetlist?
+    @Environment(\.openURL) private var openURL
+    /// What a link pre-filled the open add sheet with; nil for one opened by hand.
+    @State private var prefill: AddGigLink?
     /// Whether the legend's `+ N more` has been opened. View-local: it is where the
     /// reader left the disclosure, not a fact to remember across a launch (#396).
     @State private var legendExpanded = false
+    @State private var askingMaybe: MaybeNight?
 
     /// Everyone followed, in lane order — the list colours are counted against.
     private var allLanes: [Friend] { model.state.friends }
@@ -128,7 +168,11 @@ struct StationView: View {
             festivals: s.festivals,
             friends: s.zoomedOut ? lanes : [],
             theirs: s.zoomedOut ? s.showsByFriend : [:],
-            expanded: s.expandedFestivals
+            expanded: s.expandedFestivals,
+            // What I said about a Contact's Night nothing else links to mine (#405):
+            // joined draws Joined, apart draws nothing.
+            joins: s.nightJoins,
+            apart: s.nightsApart
         )
     }
 
@@ -152,6 +196,10 @@ struct StationView: View {
                 timeline
             }
         }
+        .modifier(MaybeNightAlert(asking: $askingMaybe))
+        .modifier(AddGigSheets(adding: $adding, prefill: $prefill))
+        .modifier(GigDeleteAlert(asked: $deleteAsked))
+        .modifier(AddGigLinkModifier(link: model.state.addGigLink, take: takeAddGigLink))
         .toolbar {
             // Explicit placement: iOS 16 puts an unplaced item somewhere else.
             ToolbarItem(placement: .principal) { wordmark }
@@ -182,7 +230,7 @@ struct StationView: View {
                 .onEnded { _ in
                     guard let f = dragFraction else { return }
                     withAnimation(.spring()) {
-                        model.setZoomedOut(f > 0.5)
+                        model.navigation.setZoomedOut(f > 0.5)
                         dragFraction = nil
                     }
                 }
@@ -197,7 +245,7 @@ struct StationView: View {
         // `_ =` because `withAnimation` is generic over its closure's result: left
         // implicit it infers `Bool` from the return and clashes with the `() -> Void`
         // the gesture takes.
-        .swipeRight { _ = withAnimation(.easeInOut(duration: 0.2)) { model.backOutOfFestivals() } }
+        .swipeRight { _ = withAnimation(.easeInOut(duration: 0.2)) { model.navigation.backOutOfFestivals() } }
         // The same two moves for VoiceOver, which takes the flick and the pinch for
         // itself. A gesture is the whole of how this screen changes Resolution, so
         // without these the other lines are not awkward to reach — they are absent.
@@ -208,7 +256,7 @@ struct StationView: View {
             named: model.state.zoomedOut ? "Close the other timelines" : "Open the other timelines beside yours"
         ) {
             guard !lanes.isEmpty else { return }
-            withAnimation(.spring()) { model.setZoomedOut(!model.state.zoomedOut) }
+            withAnimation(.spring()) { model.navigation.setZoomedOut(!model.state.zoomedOut) }
         }
         .onAppear {
             model.loadTimeline()
@@ -217,7 +265,7 @@ struct StationView: View {
         // Fetch friends' Lanes when the strip opens, not at launch — a
         // Resolution never opened shouldn't spend setlist.fm's budget.
         .onChange(of: model.state.zoomedOut) { open in
-            if open { model.loadFriendTimelines() }
+            if open { model.contacts.loadFriendTimelines() }
         }
         // One modifier, not six chained `.onChange`s: that many distinct
         // `Equatable` types stacked in a single `body` expression blew the
@@ -231,6 +279,8 @@ struct StationView: View {
             festivals: model.state.festivals,
             showIds: model.state.timelineShows.map(\.id),
             friendShowIds: model.state.showsByFriend.mapValues { $0.map(\.id) },
+            joins: model.state.nightJoins,
+            apart: model.state.nightsApart,
             recompute: recomputeRows
         ))
         // Check-in (#174): opening the timeline takes one fix and compares it
@@ -238,18 +288,18 @@ struct StationView: View {
         // scheduled. The permission is only ever asked for on a night there is
         // something to check into — never merely for opening the app.
         .task {
-            guard await model.checkInDue() else { return }
-            if model.hasLocationPermission() { model.offerCheckIn() }
-            else { model.requestLocationPermission() }
+            guard await model.gig.checkInDue() else { return }
+            if model.gig.hasLocationPermission() { model.gig.offerCheckIn() }
+            else { model.gig.requestLocationPermission() }
         }
         .sheet(item: Binding(
             get: { model.state.checkInOffer },
-            set: { if $0 == nil { model.dismissCheckInOffer() } }
+            set: { if $0 == nil { model.gig.dismissCheckInOffer() } }
         )) { gig in
             CheckInDialog(
                 gig: gig,
-                onCheckIn: { model.checkIn(gig.id) },
-                onDismiss: { model.dismissCheckInOffer() }
+                onCheckIn: { model.gig.checkIn(gig.id) },
+                onDismiss: { model.gig.dismissCheckInOffer() }
             )
             .presentationDetents([.fraction(0.3)])
         }
@@ -262,6 +312,10 @@ struct StationView: View {
                 .font(.system(size: 16, design: .serif))
                 .foregroundStyle(muted)
         }
+        // One header, not "white bullet" and then a name (#164).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Station to Station")
+        .accessibilityAddTraits(.isHeader)
     }
 
     private var menu: some View {
@@ -269,8 +323,11 @@ struct StationView: View {
             // Distinguishes an empty strip from one still arriving.
             if showingLanes && model.state.lanesLoading { ProgressView().tint(faint) }
             // The converter is not gone — it lives behind search, as on Android.
+            // Symbols only, so each says what it opens rather than what it draws (#164).
             Button { nav.push(.search) } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel("Search")
             Button { nav.push(.friends) } label: { Image(systemName: "person.2") }
+                .accessibilityLabel("Friends")
             Button { nav.push(.programme) } label: { Image(systemName: "clock") }
                 .accessibilityLabel("Festival programme")
             Button { model.refreshTimeline() } label: {
@@ -278,17 +335,37 @@ struct StationView: View {
                 else { Image(systemName: "arrow.clockwise") }
             }
             .disabled(model.state.timelineLoading)
+            .accessibilityLabel("Refresh your timeline")
             Button { nav.push(.settings) } label: { Image(systemName: "gearshape") }
+                .accessibilityLabel("Settings")
         }
         .tint(faint)
     }
 
     private var timeline: some View {
+        ScrollViewReader { proxy in
+            timelineScroll
+                .modifier(LinkResolveModifier(
+                    gig: model.state.linkedGig,
+                    date: model.state.linkedDate,
+                    rowKeys: rows.map(\.key),
+                    lanesLoading: model.state.lanesLoading,
+                    resolve: { resolveLink(proxy) }
+                ))
+        }
+    }
+
+    private var timelineScroll: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 header
                 future
                 ForEach(Array(rows.enumerated()), id: \.element.key) { i, row in
+                    if i > 0 && !row.maybeAbove.isEmpty {
+                        MaybeMergeRow(above: rows[i - 1], below: row, lanes: lanes,
+                                      colours: laneColourIndexes, laneWidth: laneWidth,
+                                      unlit: model.state.contactLight) { askingMaybe = $0 }
+                    }
                     StationRow(
                         row: row,
                         next: rows.indices.contains(i + 1) ? rows[i + 1] : nil,
@@ -300,10 +377,11 @@ struct StationView: View {
                         // Brightness carries one extra meaning only: brighter = most recent.
                         highlight: i == 0,
                         onTap: {
-                            if row.node.isSeveral { withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(row.key) } }
+                            if row.node.isSeveral { withAnimation(.easeInOut(duration: 0.2)) { model.navigation.toggleFestival(row.key) } }
                             else if case .concert(let show) = row.node { openGig(show) }
                         }
                     )
+                    .contextMenu { rowContextMenu(row) }
                 }
             }
             .padding(.top, 4)
@@ -325,7 +403,7 @@ struct StationView: View {
     /// one thing `legendSplit` does not give for free: it groups and reorders, and a
     /// re-ordered array's own position is not a Lane colour (#396).
     private var legendColourByUsername: [String: Int] {
-        Dictionary(uniqueKeysWithValues: allLanes.enumerated().map { ($1.setlistfm, $0) })
+        Dictionary(allLanes.enumerated().map { ($1.laneKey, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// "N gigs · since YYYY", and — only when someone else is on screen — the Lane
@@ -344,10 +422,10 @@ struct StationView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
                         laneKey(amber, "You")
-                        ForEach(legendExpanded ? head + rest : head, id: \.setlistfm) { f in
-                            laneKey(laneColor(colourOf[f.setlistfm] ?? 0), f.name,
-                                    hidden: model.state.hiddenLines.contains(f.setlistfm)) {
-                                model.toggleLineHidden(f.setlistfm)
+                        ForEach(legendExpanded ? head + rest : head, id: \.laneKey) { f in
+                            laneKey(laneColor(colourOf[f.laneKey] ?? 0), f.name,
+                                    hidden: model.state.hiddenLines.contains(f.laneKey)) {
+                                model.navigation.toggleLineHidden(f.laneKey)
                             }
                         }
                         // A disclosure, never a truncation (#266): every name above
@@ -408,15 +486,21 @@ struct StationView: View {
             Text("\u{2191}  THE FUTURE")
                 .font(.system(size: 11, weight: .semibold)).kerning(1.5)
                 .foregroundStyle(slate)
+                .accessibilityLabel("The future")
+                .accessibilityAddTraits(.isHeader)
             HStack {
                 Text("the shows ahead")
                     .font(.system(size: 12)).foregroundStyle(faint)
                 Spacer()
-                if model.state.planningLoading { ProgressView().tint(faint) }
-                Button { addingPlanned = true } label: {
+                if model.state.planningLoading {
+                    ProgressView().tint(faint)
+                        .accessibilityLabel("Looking it up on setlist.fm")
+                        .spokenOnAppear("Looking it up on setlist.fm")
+                }
+                Button { adding = true } label: {
                     Image(systemName: "plus.circle").foregroundStyle(slate)
                 }
-                .accessibilityLabel("Add a gig you're going to")
+                .accessibilityLabel("Add a gig")
             }
             ForEach(futureRows(tickets: model.state.plannedGigs,
                                attendance: model.state.attendanceByGig,
@@ -427,6 +511,7 @@ struct StationView: View {
                         PlannedGigRow(setlist: gig)
                             .contentShape(Rectangle())
                             .onTapGesture { openGig(gig) }
+                            .contextMenu { gigContextMenu(gig) }
                     } else {
                         plannedCluster(node)
                     }
@@ -436,21 +521,6 @@ struct StationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.bottom, 18)
-        .sheet(isPresented: $addingPlanned) {
-            AddPlannedGigSheet { artist, venue, date in
-                model.addPlannedGigByHand(artist: artist, venue: venue, date: date)
-                addingPlanned = false
-            } onAddByLink: { link in
-                model.addPlannedGig(link)
-                addingPlanned = false
-            } onCancel: { addingPlanned = false }
-        }
-        .sheet(isPresented: $addingLocal) {
-            AddLocalGigSheet { artist, venue, date in
-                model.addLocalGig(artist: artist, venue: venue, date: date)
-                addingLocal = false
-            } onCancel: { addingLocal = false }
-        }
     }
 
     /// Several planned nights that group — a **Section** above today. Opens in place on
@@ -462,7 +532,7 @@ struct StationView: View {
         let open = model.state.expandedFestivals.contains(key)
         VStack(alignment: .leading, spacing: 3) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { model.toggleFestival(key) }
+                withAnimation(.easeInOut(duration: 0.2)) { model.navigation.toggleFestival(key) }
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(node.isIdentified ? "FESTIVAL" : eveningKicker(node.shows))
@@ -482,6 +552,7 @@ struct StationView: View {
                         .padding(.leading, 14)
                         .contentShape(Rectangle())
                         .onTapGesture { openGig(gig) }
+                        .contextMenu { gigContextMenu(gig) }
                 }
             }
         }
@@ -489,8 +560,100 @@ struct StationView: View {
     }
 
     private func openGig(_ show: FmSetlist) {
-        model.selectSetlist(show)
+        model.playlist.selectSetlist(show)
         nav.push(.gig)
+    }
+
+    /// The menu of a row of mine holding one **Gig**; a **Contact**'s row and a festival have none.
+    @ViewBuilder
+    private func rowContextMenu(_ row: WovenRow) -> some View {
+        if row.mine, case .concert(let show) = row.node { gigContextMenu(show) }
+    }
+
+    /// A **Gig**'s long-press menu: where it is held, then what can be done. `gigMenu` decides.
+    @ViewBuilder
+    private func gigContextMenu(_ gig: FmSetlist) -> some View {
+        let standing = model.gig.standing(gig.id)
+        let items = gigMenu(standing, hasPage: gig.url != nil)
+        if !items.isEmpty {
+            Section(standing.caption) {
+                ForEach(items, id: \.self) { item in
+                    switch item {
+                    case .openOnSetlistFm:
+                        Button("Open on setlist.fm") {
+                            if let url = gig.url.flatMap(URL.init(string:)) { openURL(url) }
+                        }
+                    case .delete:
+                        Button("Delete gig", role: .destructive) {
+                            if model.gig.photosLostByDeleting(gig.id) > 0 { deleteAsked = gig }
+                            else { model.gig.deleteGig(gig.id) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Opens the sheet a link asked for, pre-filled. Never saves: the sheet's own
+    /// button is the only thing that does.
+    private func takeAddGigLink() {
+        guard let link = model.state.addGigLink else { return }
+        prefill = link
+        adding = true
+        model.state.addGigLink = nil
+    }
+
+    /// A linked **Gig** or date becomes a place only here. One inside a collapsed
+    /// **Festival** has no row until it opens, so this may take two passes: open it,
+    /// let the rows rebuild, then scroll. A date waits for the Lanes when the weave is
+    /// open, so it does not land on the nearest **Gig** of a weave with nobody in it yet.
+    private func resolveLink(_ proxy: ScrollViewProxy) {
+        if let date = model.state.linkedDate {
+            if model.state.zoomedOut {
+                model.contacts.loadFriendTimelines()
+                if model.state.lanesLoading { return }
+            }
+            let ahead = futureRows(tickets: model.state.plannedGigs,
+                                   attendance: model.state.attendanceByGig,
+                                   festivals: model.state.festivals)
+            let shows = rows.flatMap { $0.shows + $0.showsHereByFriends }
+                + ahead.flatMap { row -> [FmSetlist] in
+                    switch row { case .ticket(let node): return node.shows }
+                }
+            let dated = shows.compactMap { show in
+                isoDate(fromFm: show.eventDate).map { (id: show.id, date: $0) }
+            }
+            model.state.linkedDate = nil
+            if let id = nearestGig(dated, to: date) {
+                model.state.linkedGig = id
+                model.state.linkedGigAs = model.state.zoomedOut ? .woven : .singleLine
+            }
+        }
+        guard let gig = model.state.linkedGig, model.state.linkedGigAs != .setlist else { return }
+        // Last, not first: an open festival lists the gig again as a row of its own below
+        // its header, and that row is the place the link means.
+        if let row = rows.last(where: { r in
+            r.shows.contains { $0.id == gig } || r.showsHereByFriends.contains { $0.id == gig }
+        }) {
+            if row.node.isSeveral && !model.state.expandedFestivals.contains(row.key) {
+                model.navigation.toggleFestival(row.key)
+                return
+            }
+            model.state.linkedGig = nil
+            model.state.linkedGigAs = nil
+            withAnimation { proxy.scrollTo(row.key, anchor: .center) }
+            return
+        }
+        let ahead = futureRows(tickets: model.state.plannedGigs,
+                               attendance: model.state.attendanceByGig,
+                               festivals: model.state.festivals)
+        if let row = ahead.first(where: { row in
+            switch row { case .ticket(let node): return node.shows.contains { $0.id == gig } }
+        }) {
+            model.state.linkedGig = nil
+            model.state.linkedGigAs = nil
+            withAnimation { proxy.scrollTo(row.id, anchor: .center) }
+        }
     }
 
     @ViewBuilder
@@ -502,6 +665,7 @@ struct StationView: View {
             if loading {
                 ProgressView().tint(amber)
                 Text("Pulling your attended shows\u{2026}").foregroundStyle(muted)
+                    .spokenOnAppear("Pulling your attended shows from setlist.fm")
             } else {
                 Text("Nothing on your Line yet.")
                     .font(.system(size: 18, design: .serif)).foregroundStyle(ink)
@@ -510,14 +674,11 @@ struct StationView: View {
                     .multilineTextAlignment(.center)
                 Button("Import my concerts") { model.refreshTimeline() }
                     .buttonStyle(.borderedProminent).tint(amber).foregroundStyle(Color.black)
-                // A line can start above today as easily as below it: someone with no
-                // history yet still has a ticket for something.
-                Button("\u{2191}  or add a gig you're going to") { addingPlanned = true }
+                // The one door that does not end at setlist.fm (#347), and a line can start
+                // above today as easily as below it: someone with no history yet still has
+                // a ticket for something.
+                Button("or add a gig by hand") { adding = true }
                     .font(.system(size: 13)).foregroundStyle(slate).padding(.top, 4)
-                // Both doors above end at setlist.fm. This one does not, and it is the
-                // only affordance here a person without an account can act on (#347).
-                Button("or type in a night you were at") { addingLocal = true }
-                    .font(.system(size: 13)).foregroundStyle(slate)
             }
         }
         .padding(32)
@@ -577,6 +738,8 @@ struct StationRow: View {
             // 14pt, inner 10pt) and zig-zags down the screen.
             ZStack(alignment: .topLeading) { node }
                 .frame(width: SpineWidth + laneWidth, alignment: .leading)
+                // The ring's number repeats the count the words below already say.
+                .accessibilityHidden(true)
 
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -587,6 +750,10 @@ struct StationRow: View {
         .background(alignment: .topLeading) { lines }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        // One stop per night, read as its words — the date, who, where, what is kept
+        // — and said to be something that opens (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     /// The Lines running through this row, drawn behind it so they span its whole
@@ -648,6 +815,7 @@ struct StationRow: View {
                 Text(row.node.label).font(.system(size: 17, design: .serif)).foregroundStyle(row.mine ? ink : muted)
                 Text(festivalDateRange(row.node)).font(.system(size: 13)).foregroundStyle(muted)
                 festivalCounts(shows).font(.system(size: 12)).padding(.top, 4)
+                maybeLine
             }
         case .concert(let show):
             VStack(alignment: .leading, spacing: 3) {
@@ -657,6 +825,7 @@ struct StationRow: View {
                     .font(.system(size: 17, design: .serif))
                     .foregroundStyle(row.mine ? ink : muted)
                 Text(show.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
+                maybeLine
                 // The shared rule, not a local one: what the record says about its own
                 // songs (#127). Said "setlist not logged" here while Android said "no
                 // setlist yet" for the identical state — one line, two apps.
@@ -664,6 +833,26 @@ struct StationRow: View {
                 Text(setlistStatus(songCount: show.performed().count))
                     .font(.system(size: 12)).foregroundStyle(faint).padding(.top, 4)
             }
+        }
+    }
+
+    /// The *maybe* on this row (#405): "maybe with Mia". In the meeting's green, because
+    /// it is a meeting that might have been, but as words beside my node rather than a
+    /// line that bends to it — a line is a claim, and this is a question. Off under the
+    /// Contact light, like the green: a generic contact view has no "we" to ask about.
+    /// Android's `MaybeLine`.
+    @ViewBuilder
+    private var maybeLine: some View {
+        if !unlit && !row.joinedWith.isEmpty {
+            Text("With " + row.joinedWith.map { $0.name.nilIfBlank ?? "a Contact" }.joined(separator: " and "))
+                .font(.system(size: 12)).foregroundStyle(crossed)
+        }
+        if !unlit && !row.maybeInWords.isEmpty {
+            let who = row.maybeInWords.map(\.name).joined(separator: " and ")
+            Text("maybe with \(who)")
+                .font(.system(size: 12))
+                .foregroundStyle(crossed.opacity(0.85))
+                .accessibilityLabel("Maybe a night shared with \(who). Open it to say whether it was.")
         }
     }
 
@@ -713,110 +902,6 @@ struct StationRow: View {
     }
 }
 
-/// One night I hold a ticket for, above today (#175). Not woven into `rows` — it isn't
-/// an attended show and has no Lane/Crossing geometry of its own to draw — just the
-/// fact of the gig and `plannedStatus`'s answer to "how far off is it", the same words
-/// `gigStatus` gives an attended row once it has passed.
-private struct PlannedGigRow: View {
-    let setlist: FmSetlist
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(setlist.readableDate() ?? "Unknown date")
-                .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
-            Text(setlist.artist?.name ?? "Unknown artist")
-                .font(.system(size: 15, design: .serif)).foregroundStyle(ink)
-            Text(setlist.venueLine()).font(.system(size: 13)).foregroundStyle(muted)
-            Text(plannedStatus(gigDate: setlist.eventDate, now: Date(), songCount: setlist.performed().count))
-                .font(.system(size: 12)).foregroundStyle(slate).padding(.top, 2)
-        }
-        .padding(.vertical, 8)
-    }
-}
-
-// --- The woven Lines, drawn as one Canvas per row (SwiftUI's spine mechanics) ---
-
-/// One Canvas behind the row draws every Line where it runs through this row: mine
-/// (amber) plus each friend's (Lane colour), bending toward the next row's node and
-/// turning green wherever two or more lie on the same stretch. A Node is a ring you
-/// see through, so every Line stops at its rim. Faithful to Android's PeopleRails.
-private struct PeopleRails: View {
-    let row: WovenRow
-    let next: WovenRow?
-    let lanes: [Friend]
-    /// The colour index each drawn Lane keeps (`laneColours`). Empty means nobody is
-    /// hidden, where drawn index and colour index are the same thing.
-    var colours: [Int] = []
-    let laneWidth: CGFloat
-
-    var body: some View {
-        Canvas { ctx, size in draw(&ctx, size) }
-    }
-
-    /// Strokes the description and keeps no rule of its own (#116). Where a Line goes is
-    /// `rowGeometry`'s answer; this decides only what a role looks like and how a bend is
-    /// curved. A geometry rule that appears in here is a rule in the wrong place.
-    private func draw(_ ctx: inout GraphicsContext, _ size: CGSize) {
-        guard laneWidth > 0, !lanes.isEmpty else { return }
-        let h = size.height
-        let isFestival = row.node.isSeveral
-        let nodeAt = nodeHost(row, lanes)
-
-        for d in rowGeometry(row, next, lanes, laneWidth, h, colours) {
-            let atColor = color(d.colour)
-
-            if d.nodeY - d.nodeR > 0 {
-                var p = Path()
-                p.move(to: CGPoint(x: d.x, y: 0))
-                p.addLine(to: CGPoint(x: d.x, y: d.nodeY - d.nodeR))
-                ctx.stroke(p, with: .color(atColor), lineWidth: d.width)
-            }
-
-            var body = Path()
-            body.move(to: CGPoint(x: d.x, y: d.nodeY + d.nodeR))
-            body.addLine(to: CGPoint(x: d.x, y: h - d.bendLen))
-            ctx.stroke(body, with: .color(atColor), lineWidth: d.width)
-
-            var tail = Path()
-            tail.move(to: CGPoint(x: d.x, y: h - d.bendLen))
-            if d.toX == d.x {
-                tail.addLine(to: CGPoint(x: d.x, y: h))
-            } else {
-                tail.addCurve(
-                    to: CGPoint(x: d.toX, y: h),
-                    control1: CGPoint(x: d.x, y: h - d.bendLen * 0.45),
-                    control2: CGPoint(x: d.toX, y: h - d.bendLen * 0.55)
-                )
-            }
-            ctx.stroke(tail, with: .color(color(d.colourAhead)), lineWidth: d.widthAhead)
-
-            // One Node per night, drawn once by the innermost Line that was there.
-            // Mine and festivals draw their own ring, so this only fills the gap for
-            // a Gig of theirs.
-            if d.present && !row.mine && !isFestival && d.line == nodeAt {
-                let joined = linesAt(row, lanes).count > 1
-                let r: CGFloat = 6
-                let rect = CGRect(x: d.x - r, y: d.nodeY - r, width: 2 * r, height: 2 * r)
-                // The host's *stable* colour, so hiding someone never repaints this.
-                let hostColour = colours.indices.contains(d.line) ? colours[d.line] : d.line
-                ctx.stroke(Path(ellipseIn: rect),
-                           with: .color(joined ? crossed : laneColor(hostColour)), lineWidth: 2)
-            }
-        }
-    }
-
-    /// The Canvas is the only thing that knows what a role looks like — which is what
-    /// lets the colour rules be asserted in a unit test with nothing rendered.
-    private func color(_ role: LineColour) -> Color {
-        switch role {
-        case .meeting: return crossed
-        case .mine(let present): return amber.opacity(present ? 0.85 : 0.4)
-        case .rail(let colourIndex): return laneColor(colourIndex)
-        case .absent: return lineCol
-        }
-    }
-}
-
 // --- Dates ---
 
 private let dayMonth: DateFormatter = {
@@ -850,35 +935,6 @@ func festivalDateRange(_ node: TimelineNode) -> String {
     return "\(dayMonth.string(from: first)) \u{2013} \(dayMonthYear.string(from: last))"
 }
 
-/// "Are you here?" — the one thing a check-in asks (#174). Shown only when a
-/// fix already put the phone at the venue on the night, so it states what it
-/// thinks and offers the two honest answers.
-private struct CheckInDialog: View {
-    let gig: FmSetlist
-    let onCheckIn: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Are you here?")
-                .font(.system(size: 19, design: .serif)).foregroundStyle(ink)
-            Text("\(gig.artist?.name ?? "This show") at \(gig.venue?.name ?? "the venue"), tonight.")
-                .font(.system(size: 13)).foregroundStyle(muted)
-            Text("Checking in records that you were at it — on this phone, nowhere else.")
-                .font(.system(size: 11)).foregroundStyle(faint)
-            Spacer(minLength: 12)
-            HStack {
-                Spacer()
-                Button("Not now") { onDismiss() }.foregroundStyle(faint)
-                Button("Check in") { onCheckIn() }.foregroundStyle(amber)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ground.ignoresSafeArea())
-    }
-}
-
 /// One keepsake at row size, from the durable tier — the library is never asked, which
 /// is what keeps a row drawn after the original is gone.
 private struct RowThumb: View {
@@ -898,144 +954,6 @@ private struct RowThumb: View {
         .task {
             // Off the main actor: a timeline of decodes should not stutter its own scroll.
             image = await Task.detached { PhotoLibrary.gridImage(mediaId) }.value
-        }
-    }
-}
-
-/// A gig I'm going to, typed in — or pasted, for a night setlist.fm already has.
-///
-/// Typing is the default and the link is the alternative, which is the way round
-/// Android settled on: the paste is the faster door only for a show already
-/// catalogued, and a future show usually is not (#349). Twin of Android's
-/// `AddPlannedGigDialog`.
-///
-/// **The artist completes; the venue does not.** MusicBrainz has a `place` entity and
-/// its coverage of small rooms is thin, so a completion box that fails most of the
-/// time would teach people to ignore the one above it. A plain field that never
-/// guesses is the honest version of a venue.
-private struct AddPlannedGigSheet: View {
-    let onAdd: (String, String, String) -> Void
-    let onAddByLink: (String) -> Void
-    let onCancel: () -> Void
-
-    @EnvironmentObject var model: AppModel
-    @State private var artist = ""
-    @State private var venue = ""
-    @State private var date = ""
-    @State private var link = ""
-    @State private var pasting = false
-    /// The last spelling picked from the list, so writing it into the field is not
-    /// mistaken for typing it.
-    @State private var picked = ""
-
-    private var ready: Bool {
-        pasting
-            ? !link.trimmingCharacters(in: .whitespaces).isEmpty
-            : !artist.trimmingCharacters(in: .whitespaces).isEmpty
-                && !date.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                if pasting {
-                    Section {
-                        TextField("setlist.fm link", text: $link)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    } footer: {
-                        Text("Paste the setlist.fm page for the show. It brings the real "
-                             + "venue and date with it.")
-                    }
-                } else {
-                    Section {
-                        TextField("who's playing", text: $artist)
-                            // Picking a spelling writes the field, and `onChange`
-                            // cannot tell that from typing — without the guard the
-                            // list the pick just dismissed comes straight back.
-                            .onChange(of: artist) { name in
-                                if name != picked { model.suggestArtists(name) }
-                            }
-                        // Suggestions sit directly under the field they belong to and
-                        // nowhere else. Capped at four rows: this is a prompt above a
-                        // keyboard, and a list that scrolls is a search result page
-                        // pretending to be a hint.
-                        ForEach(model.state.artistSuggestions.prefix(4)) { hit in
-                            Button {
-                                picked = hit.name
-                                artist = hit.name
-                                model.clearArtistSuggestions()
-                            } label: {
-                                Text(hit.disambiguation.isEmpty
-                                     ? hit.name : "\(hit.name)  · \(hit.disambiguation)")
-                                    .font(.footnote).foregroundStyle(slate)
-                            }
-                        }
-                        TextField("venue (optional)", text: $venue)
-                        TextField("date (dd-MM-yyyy)", text: $date)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    } footer: {
-                        Text("It can't be searched for this far ahead, so this night "
-                             + "lives on this phone until setlist.fm catches up with it.")
-                    }
-                }
-                Section {
-                    Button(pasting ? "or type it in" : "or paste a setlist.fm link") {
-                        pasting.toggle()
-                    }
-                    .font(.footnote)
-                }
-            }
-            .navigationTitle("A gig you're going to")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { model.clearArtistSuggestions(); onCancel() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        model.clearArtistSuggestions()
-                        if pasting { onAddByLink(link) } else { onAdd(artist, venue, date) }
-                    }
-                    .disabled(!ready)
-                }
-            }
-        }
-    }
-}
-
-struct AddLocalGigSheet: View {
-    let onAdd: (String, String, String) -> Void
-    let onCancel: () -> Void
-
-    @State private var artist = ""
-    @State private var venue = ""
-    @State private var date = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("who played", text: $artist)
-                    TextField("venue (optional)", text: $venue)
-                    TextField("date (dd-MM-yyyy)", text: $date)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                } footer: {
-                    Text("No account needed. This night lives on this phone, and what "
-                         + "was played goes in its log afterwards.")
-                }
-            }
-            .navigationTitle("A night you were at")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add it") { onAdd(artist, venue, date) }
-                        .disabled(artist.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || date.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
         }
     }
 }

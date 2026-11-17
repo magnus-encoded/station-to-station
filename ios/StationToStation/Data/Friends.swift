@@ -1,10 +1,16 @@
+import CryptoKit
 import Foundation
 
-/// A friend is just a setlist.fm username (the only thing needed to fetch their
-/// attended concerts) plus a display name and, when available, the Spotify id
-/// that username maps to. No server: friends are exchanged peer-to-peer as a
-/// shareable deep link (see `shareURL`) and stored on-device.
+/// A person on my timeline: a **Followed line**, a **Contact**, or both.
+///
+/// A **Followed line** is a setlist.fm username and nothing more — the address its
+/// attended list is fetched from — added by a link, a QR code or typing it. A **Contact**
+/// is whoever I ran an **Exchange** with, and the key they handed over is the identity
+/// (#405): `setlistfm` is an attribute of theirs, blank for someone with no account. Only
+/// the radio can make a Friend with a blank username, because only the radio carries a key
+/// (see `friendFromURL`). `laneKey` is what their **Lane** is held under either way.
 struct Friend: Codable, Identifiable, Hashable {
+    /// Their setlist.fm username, or blank for a **Contact** with no account (#405).
     let setlistfm: String
     var name: String
     var spotifyId: String?
@@ -25,7 +31,25 @@ struct Friend: Codable, Identifiable, Hashable {
         self.publicKey = publicKey
     }
 
-    var id: String { setlistfm }
+    /// By Lane, not by username: two Contacts without an account share a blank one.
+    var id: String { laneKey }
+
+    /// What their **Lane** is held under, in `TimelineCache.shows` and every map keyed by
+    /// a Line (#405). The setlist.fm username exactly as it always was, so every Contact
+    /// and Lane held before this is found where it was left; `key:` and `keyFingerprint`
+    /// for a Contact with no account. The colon keeps the two apart —
+    /// `isPlausibleSetlistFmUser` refuses it. Android's `laneKey`, term for term.
+    var laneKey: String {
+        if !setlistfm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return setlistfm }
+        if let key = publicKey?.nilIfBlank { return "key:" + keyFingerprint(key) }
+        return ""
+    }
+
+    /// " (@username)", or nothing for a **Contact** with no account — for a line of copy.
+    var atUser: String { setlistfm.nilIfBlank.map { " (@\($0))" } ?? "" }
+
+    /// How copy refers to them: "@username", or their name when there is no username.
+    var handle: String { setlistfm.nilIfBlank.map { "@\($0)" } ?? name }
 
     /// The link a user shares so a friend's app can add them with one tap.
     ///
@@ -92,39 +116,123 @@ struct FriendConflict: Identifiable, Equatable {
     let existing: Friend
     let incoming: Friend
 
-    var id: String { existing.setlistfm }
+    var id: String { existing.laneKey }
 
     /// A changed key is a changed phone, and that is how the question is asked: someone
     /// who bought a handset recognises it immediately, and someone who did not has just
     /// been shown an attack. A *first* key never reaches here — that is a promotion.
+    /// What the alert says. A changed key is asked about as a changed phone; anything else
+    /// shows both cards, and says the Line is untouched only when it is (#405).
+    var message: String {
+        if keyChanged {
+            return "\(existing.name)\(existing.atUser) seems to be on a different phone than "
+                + "last time you saw them. Confirm you still want to share."
+        }
+        let now: String = "Now: \(existing.name)\(existing.atUser)"
+        let card: String = "Card: \(incoming.name)\(incoming.atUser)"
+        let head: String = "A card for \(existing.handle) says something different from what you have."
+        let tail: String = usernameChanged
+            ? ""
+            : "\n\nTheir timeline does not change either way — only the name you see against it."
+        return head + "\n\n" + now + "\n" + card + tail
+    }
+
+    /// A card carrying a different setlist.fm username — or a first one — changes where
+    /// their **Line** is read from (#405). One silent about it changes nothing there.
+    var usernameChanged: Bool {
+        guard let user = incoming.setlistfm.nilIfBlank else { return false }
+        return user.lowercased() != existing.setlistfm.lowercased()
+    }
+
     var keyChanged: Bool {
         existing.publicKey?.nilIfBlank != nil && incoming.publicKey?.nilIfBlank != nil
             && existing.publicKey != incoming.publicKey
     }
 }
 
-/// Matched on the setlist.fm username, case-insensitively — the same key the list has
-/// always de-duplicated on, because it is the identity setlist.fm itself uses.
+/// A short, stable name for a **Card** key: SHA-256 over the base64 text as it came off
+/// the wire, the first 16 hex digits. Over the text rather than the decoded bytes so it
+/// cannot fail, and so both twins and both of my own devices (Handover) derive the same
+/// name from the same card. Android's `keyFingerprint`, and both suites pin one digest.
+func keyFingerprint(_ publicKey: String) -> String {
+    let digest = SHA256.hash(data: Data(publicKey.trimmingCharacters(in: .whitespacesAndNewlines).utf8))
+    return String(digest.map { String(format: "%02x", $0) }.joined().prefix(16))
+}
+
+/// The Friend I already hold who `incoming` is, or nil (#405).
+///
+/// **The key first**, because it is the identity: a card carrying a key I hold is that
+/// person whatever username it carries, or none. Then the setlist.fm username,
+/// case-insensitively, which is how a **Followed line** — keyless by construction — is
+/// recognised, and how a new phone (a new key) is still asked about rather than added as
+/// a stranger. A blank username never matches anything: two people without an account
+/// are not one person.
+func heldFriend(_ incoming: Friend, known: [Friend]) -> Friend? {
+    func trimmed(_ s: String?) -> String? {
+        s?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+    }
+    if let key = trimmed(incoming.publicKey),
+       let held = known.first(where: { trimmed($0.publicKey) == key }) {
+        return held
+    }
+    guard incoming.setlistfm.nilIfBlank != nil else { return nil }
+    return known.first { $0.setlistfm.lowercased() == incoming.setlistfm.lowercased() }
+}
+
+/// The list once `incoming` is written: whoever `heldFriend` says it is comes out, and
+/// `incoming` goes on the end, where the most recently added person's **Lane** is drawn.
+///
+/// A key already held is never dropped by a later, thinner way of meeting the same person
+/// (#188) — only the radio carries a key, and there is no second moment to collect it. The
+/// same goes for a username (#405): a card silent about it keeps the one held, so the Lane
+/// stays where it is filed. Android's `withFriend`, term for term.
+func withFriend(_ known: [Friend], _ incoming: Friend) -> [Friend] {
+    let held = heldFriend(incoming, known: known)
+    let written = Friend(
+        setlistfm: incoming.setlistfm.nilIfBlank ?? held?.setlistfm ?? "",
+        name: incoming.name,
+        spotifyId: incoming.spotifyId,
+        publicKey: incoming.publicKey?.nilIfBlank ?? held?.publicKey
+    )
+    return known.filter { $0 != held } + [written]
+}
+
+extension Array where Element == Friend {
+    /// The name of whoever `from` is — a **Card** key, as media and notes are attributed,
+    /// or a `laneKey`. Nil for a blank `from`: a blank is nobody, and matching it would
+    /// hand an unattributed item to the first Contact with no account.
+    func nameOf(_ from: String) -> String? {
+        guard let from = from.nilIfBlank else { return nil }
+        let trimmed = from.trimmingCharacters(in: .whitespacesAndNewlines)
+        return first {
+            $0.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed || $0.laneKey == from
+        }?.name
+    }
+}
+
+/// Matched by `heldFriend`: the key when the card carries one, the username otherwise.
 func friendArrival(_ incoming: Friend, known: [Friend]) -> FriendArrival {
-    guard let existing = known.first(where: {
-        $0.setlistfm.lowercased() == incoming.setlistfm.lowercased()
-    }) else { return .new(incoming) }
+    guard let existing = heldFriend(incoming, known: known) else { return .new(incoming) }
     // A first key is a promotion, not a change: nothing is being overwritten, because a
     // **Followed line** held no key to overwrite. Checked before anything else, so a name
     // or Spotify id arriving alongside that first key rides in with it unasked.
     let incomingKey = incoming.publicKey?.nilIfBlank
     if existing.publicKey?.nilIfBlank == nil, incomingKey != nil { return .promotion(incoming) }
-    // The username is the identity and cannot differ here; only what the card *says*
-    // about that identity can. A card carrying no Spotify id is not a claim that they
-    // have none, so it does not count as a change on its own — and the same goes for a
-    // card carrying no key, which must never unmake a **Contact**.
+    // Only what the card *says* about the person can differ here. A card carrying no
+    // Spotify id is not a claim that they have none, so it does not count as a change on
+    // its own — and the same goes for a card carrying no key, which must never unmake a
+    // **Contact**, and a card carrying no username (#405): matched by key, it is the same
+    // person saying less. A username that differs, or one arriving for a Contact held
+    // without one, changes where their Lane comes from, and asks.
     let sameName = existing.name == incoming.name
     let sameSpotify = incoming.spotifyId == nil || existing.spotifyId == incoming.spotifyId
+    let sameUser = incoming.setlistfm.nilIfBlank == nil
+        || existing.setlistfm.lowercased() == incoming.setlistfm.lowercased()
     // A differing key is the change that matters most: it is what a LAN beacon is
     // verified against (#265), so a card silently swapping it is exactly the
     // impersonation case this whole arrival check exists to catch.
     let sameKey = incomingKey == nil || existing.publicKey == incomingKey
-    return sameName && sameSpotify && sameKey
+    return sameName && sameSpotify && sameKey && sameUser
         ? .unchanged
         : .conflict(existing: existing, incoming: incoming)
 }
@@ -191,6 +299,9 @@ func gigIdFromInvite(_ url: URL) -> String? {
 }
 
 /// Parses a `station-to-station://friend?...` link. Nil if it isn't one / has no username.
+///
+/// Untouched by #405: a **Card** can now go without a username, but only over the radio,
+/// where it carries a key. A link carries no key, so a link with no username is nobody.
 func friendFromURL(_ url: URL) -> Friend? {
     guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.host == "friend"
     else { return nil }

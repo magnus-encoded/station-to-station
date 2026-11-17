@@ -30,8 +30,8 @@ final class GossipLifecycleTests: XCTestCase {
         let first = try fact(ended)
         let second = try fact(active)
         var state = PublicGossipState()
-        XCTAssertTrue(state.receive(first, from: "supplier", now: cutoff - 1000))
-        XCTAssertTrue(state.receive(second, from: "supplier", now: cutoff - 1000))
+        XCTAssertTrue(state.receive(first, from: "supplier", now: cutoff - 1000, localGigIds: [ended, active]))
+        XCTAssertTrue(state.receive(second, from: "supplier", now: cutoff - 1000, localGigIds: [ended, active]))
         XCTAssertEqual(state.offer(to: "peer", now: cutoff - 1, participationEnds: ends).count, 2)
         XCTAssertEqual(state.offer(to: "peer", now: cutoff, participationEnds: ends).map(\.id), [second.id])
         XCTAssertEqual(state.held.count, 2)
@@ -78,17 +78,15 @@ final class GossipLifecycleTests: XCTestCase {
         let duringGrace = night.done + 600_000
         let ledger = GossipLedger(file: night.gossipFile)
         let theirs = try night.foreignFact(gigId: gigId, line: 1, text: "Evolve", at: duringGrace)
-        let admitted = await ledger.receivePublicFacts([theirs], from: "supplier", now: duringGrace)
+        let admitted = await ledger.receivePublicFacts([theirs], from: "supplier", now: duringGrace, localGigIds: [gigId])
         XCTAssertEqual(admitted.count, 1)
 
-        // Nothing about this device's own night moved: same Log, same completion, same deadline.
         let after = await store.load()
         XCTAssertEqual(after.gigLogs[gigId], mine)
         XCTAssertEqual(gossipActiveUntil(cache: after), deadline)
         XCTAssertNotNil(gossipParticipationUntilInForce(cache: after, at: deadline.addingTimeInterval(-1)))
         XCTAssertNil(gossipParticipationUntilInForce(cache: after, at: deadline))
 
-        // And it is visible where the set is read, beside the line this phone wrote itself.
         let state = await ledger.publicSnapshot(now: duringGrace)
         let rows = weaveGossip(base: mine.songs.map { Optional($0) },
             facts: state.project(gigIds: [gigId]))
@@ -115,7 +113,7 @@ final class GossipLifecycleTests: XCTestCase {
 
         let ledger = GossipLedger(file: night.gossipFile)
         let fact = try night.foreignFact(gigId: gigId, line: 0, text: "Qué Más Quieres", at: checkedIn + 60_000)
-        let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: checkedIn + 60_000)
+        let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: checkedIn + 60_000, localGigIds: [gigId])
         XCTAssertEqual(admitted.count, 1)
 
         let stoppedAt = checkedIn + 120_000
@@ -151,7 +149,7 @@ final class GossipLifecycleTests: XCTestCase {
             let ledger = GossipLedger(file: night.gossipFile)
             let at = night.done + 60_000
             let fact = try night.foreignFact(gigId: gigId, line: 1, text: "Evolve", at: at)
-            let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: at)
+            let admitted = await ledger.receivePublicFacts([fact], from: "supplier", now: at, localGigIds: [gigId])
             XCTAssertEqual(admitted.count, 1)
             let first = await store.load()
             XCTAssertEqual(gossipActiveUntil(cache: first), expected)
@@ -236,7 +234,6 @@ final class GossipLifecycleTests: XCTestCase {
         XCTAssertEqual(gossipStoppedGigs(eligible: lapsed.filter { $0.value > after },
                                          running: gossipParticipationEnds(cache: cache, stoppedAt: after)),
                        [second])
-        // And once the night itself is over there is nothing to be standing at.
         XCTAssertNil(active(selected: first, now: Int64(night.end.timeIntervalSince1970 * 1000) + 1))
     }
 

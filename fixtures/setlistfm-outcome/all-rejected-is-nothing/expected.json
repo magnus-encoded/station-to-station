@@ -1,0 +1,12 @@
+{
+  "about": "The only hit was rejected before: nothing is offered, and the lookup is still stamped.",
+  "outcome": "nothing",
+  "after": {
+    "lastLookupAt": 1804881600000,
+    "rejectedIds": [
+      "d3000001"
+    ],
+    "pendingHitIds": [],
+    "pendingHits": []
+  }
+}

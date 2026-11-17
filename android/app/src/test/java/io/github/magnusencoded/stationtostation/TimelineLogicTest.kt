@@ -116,7 +116,6 @@ class TimelineLogicTest {
         show("b", "25-06-2026", venue = "Ekebergsletta", artist = "Gojira"),
     )
 
-    /** The identity that evening turns out to have, as the scrape hands it over. */
     private fun scraped() = ScrapedFestival(
         name = "Tons of Rock 2026",
         slug = "tons-of-rock-2026-6bd52ece",
@@ -224,7 +223,6 @@ class TimelineLogicTest {
         // one, which is what "degrades rather than blocks" means here.
         val mine = oneEvening()
         assertNull(scheduledStart(mine[0], withSetTimes(mine, emptyMap())))
-        // And a night at no festival at all has nowhere for one to come from.
         assertNull(scheduledStart(mine[0], Festivals()))
     }
 
@@ -279,7 +277,6 @@ class TimelineLogicTest {
 
         val first = logic.resolveFestivals(mine, Festivals())
         assertTrue(first.isEmpty())
-        // The evening, not the act: one page answers for the whole night.
         assertEquals(setOf("a", "b"), fake.savedAsked)
 
         fake.calls.clear()
@@ -346,7 +343,6 @@ class TimelineLogicTest {
         val found = TimelineLogic(fake).resolveFestivals(mine, Festivals())
 
         assertEquals(1, fake.calls.count { it.startsWith("festivalAt") })
-        // And it answered for the whole run, not only the night it was asked about.
         assertEquals(
             listOf("Tons of Rock 2026"),
             mine.map { found.of(it.id)?.name }.distinct(),

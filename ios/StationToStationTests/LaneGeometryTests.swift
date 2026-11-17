@@ -58,7 +58,6 @@ final class LaneGeometryTests: XCTestCase {
     }
 
     func testOnePartingOnTheRowTheOtherJoinsIsTwoIndependentAnswers() {
-        // Above: I was out with Lemmy. Here: with Ozzy instead.
         let above = row(mine: true, lemmy)
         let here = row(mine: true, ozzy)
 
@@ -211,7 +210,6 @@ final class LaneGeometryTests: XCTestCase {
         XCTAssertEqual(15, try at(drawn(festivalRow(mine: true)), Spine).nodeY, accuracy: 0.01)
     }
 
-    /// A stranger's Lane is not notched by a night they missed.
     func testALineNobodyPresentIsOnRunsPastTheNodeWithNoRimGap() throws {
         let d = try at(drawn(row(mine: true)), 0) // Ozzy was not there
         XCTAssertFalse(d.present)
@@ -245,9 +243,7 @@ final class LaneGeometryTests: XCTestCase {
     func testColourIsARoleThatFollowsTheGeometry() throws {
         XCTAssertEqual(LineColour.mine(present: true), try at(drawn(row(mine: true)), Spine).colour)
         XCTAssertEqual(LineColour.mine(present: false), try at(drawn(row(mine: false, lemmy)), Spine).colour)
-        // A friend alone on their own Lane takes their own light.
         XCTAssertEqual(LineColour.rail(colourIndex: 1), try at(drawn(row(mine: false, lemmy)), 1).colour)
-        // Company, whoever it is with.
         XCTAssertEqual(LineColour.meeting, try at(drawn(row(mine: true, ozzy)), Spine).colour)
     }
 

@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// The share sheet's face of ticket parsing (#412).
 ///
-/// It reads the PDF, parses it, drops the result in the inbox and says so. It
+/// It reads the PDF, parses it, drops the result — and the PDF — in the inbox and says so. It
 /// deliberately does **not** ask the person to confirm anything: confirming needs the
 /// nights already on the **Line** to match against, and those live in the app's own
 /// store, which this process must not open — ADR-0020. So the last thing it says is
@@ -38,7 +38,10 @@ final class ShareViewController: UIViewController {
         case .nothingUsable: ticket = Ticket()
         }
 
-        guard TicketInbox.deposit(ticket) else {
+        // The file crosses too (#568): only the app can tell whether a barcode redraws,
+        // and where one does not, the file is what is shown at the door. The app drops
+        // it with the deposit otherwise.
+        guard TicketInbox.deposit(ticket, original: data) else {
             return finish("Station to Station couldn't be reached on this install.")
         }
         finish(summary(read))

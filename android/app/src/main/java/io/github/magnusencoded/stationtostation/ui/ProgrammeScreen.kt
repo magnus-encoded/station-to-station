@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -125,7 +126,7 @@ private val Ink = Color(0xFFEDE9F2)
 private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val Amber = Color(0xFFE7B24C)
-private val Slate = Color(0xFF6D7E9B)
+private val Slate = Color(0xFF6F809D)
 private val Serif = FontFamily.Serif
 
 /**
@@ -326,6 +327,7 @@ fun ProgrammeScreen(
                         if (picking || programme.name.isBlank()) "Programme" else programme.name,
                         fontFamily = Serif,
                         color = Ink,
+                        modifier = Modifier.asHeading(),
                     )
                 },
                 navigationIcon = {
@@ -359,7 +361,7 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
+                onOpenInBrowser = { scope.launch { viewModel.settingsController.openClashfinderInBrowser(context, refusedPath) } },
                 onRefresh = { loadIndex() },
                 onPick = { loadProgramme(it.id) },
             )
@@ -373,9 +375,9 @@ fun ProgrammeScreen(
                 error = error,
                 blocked = blocked,
                 onImport = { importer.launch(arrayOf("*/*")) },
-                onOpenInBrowser = { scope.launch { viewModel.openClashfinderInBrowser(context, refusedPath) } },
+                onOpenInBrowser = { scope.launch { viewModel.settingsController.openClashfinderInBrowser(context, refusedPath) } },
                 onRefetch = { loadProgramme(programme.id) },
-                onCommit = { diff, picked -> viewModel.commitProgramme(programme, diff, picked) },
+                onCommit = { diff, picked -> viewModel.planning.commitProgramme(programme, diff, picked) },
             )
         }
     }
@@ -424,7 +426,7 @@ private fun ErrorNote(
 ) {
     if (error == null) return
     Column(modifier) {
-        Text(error, color = Slate, fontSize = 13.sp)
+        Text(error, color = Slate, fontSize = 13.sp, modifier = Modifier.spokenOnChange())
         if (blocked) ByHand(onImport, onOpenInBrowser)
     }
 }
@@ -825,7 +827,7 @@ private fun Line(
                     color = Faint,
                     fontSize = 10.sp,
                     letterSpacing = 1.5.sp,
-                    modifier = Modifier.rail().padding(start = RailInset, top = 14.dp, bottom = 6.dp),
+                    modifier = Modifier.rail().padding(start = RailInset, top = 14.dp, bottom = 6.dp).asHeading(),
                 )
             }
         }
@@ -905,7 +907,8 @@ private fun CommitBar(label: String, sub: String, onClick: () -> Unit) {
                 )
             }
         }
-        Text("→", color = Ground, fontSize = 16.sp, fontFamily = FontFamily.Monospace)
+        // Decoration: the row already says what it does, and "right arrow" adds nothing.
+        Text("→", color = Ground, fontSize = 16.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
@@ -919,7 +922,14 @@ private fun billNightOf(now: LocalDateTime): LocalDate =
 
 @Composable
 private fun Label(text: String, color: Color) {
-    Text(text, color = color, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+    Text(
+        text,
+        color = color,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.asHeading(),
+    )
 }
 
 @Composable

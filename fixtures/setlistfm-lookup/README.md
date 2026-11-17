@@ -21,3 +21,9 @@ to `now` means "look now".
   is true.
 
 `manual.json`: a pull to refresh on a local Gig. The answer is `lookUpNow` or `friction`.
+
+`plan.json`: what the foreground loop does next, `setlistFmLookupPlan` in
+`SetlistFmLookupFlow.kt` and `.swift`, asserted by `SetlistFmLookupFlowTest` and
+`SetlistFmLookupFlowTests`. Each case lists `gigs` (`id`, `date`, `local`, `lookup` as the
+stored `setlistFmLookup` JSON or `null`, and `participationUntil`), and expects `dueNow`,
+the ids to look up now in order, and `nextWakeAt`, the earliest later due time or `null`.

@@ -58,8 +58,6 @@ final class ContactViewTests: XCTestCase {
         XCTAssertTrue(Set(seen).isDisjoint(with: Set(held)))
     }
 
-    /// A night sharing nothing stays, empty — a night that vanished would answer a
-    /// question nobody asked.
     func testANightSharingNothingStaysAsAnEmptyNight() {
         let byNight = ["g1": [mine("a", personal: true)], "g2": [mine("b")]]
 
@@ -74,8 +72,6 @@ final class ContactViewTests: XCTestCase {
         XCTAssertEqual([], visibleToContacts([]).map(\.id))
         XCTAssertEqual([], withheldFromContacts([]).map(\.id))
     }
-
-    // --- Whose night is this (#327) ------------------------------------------------
 
     private func night(_ id: String) -> FmSetlist {
         FmSetlist(id: id, eventDate: "25-06-2026", artist: FmArtist(name: "Artist"),

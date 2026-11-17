@@ -34,6 +34,8 @@ class GossipStore(private val data: DataStore<Preferences>) {
 
     constructor(context: Context) : this(context.applicationContext.gossipStore)
 
+    @Volatile private var lastPublic: PublicGossipState? = null
+
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private object Keys {
@@ -112,8 +114,16 @@ class GossipStore(private val data: DataStore<Preferences>) {
     /** Detached snapshots: radio and author observe the same committed transaction stream. */
     val publicStates = data.data.map { prefs -> decodePublic(prefs[Keys.PUBLIC]) }
 
-    private fun decodePublic(value: String?): PublicGossipState =
-        value?.let { json.decodeFromString<PublicGossipState>(it) } ?: PublicGossipState()
+    private fun decodePublic(value: String?): PublicGossipState {
+        val state = value?.let { json.decodeFromString<PublicGossipState>(it) } ?: PublicGossipState()
+        // A copied id cannot transfer trust to different signed bytes.
+        lastPublic?.let { previous ->
+            state.verifiedIds.addAll(previous.verifiedIds.filter { id ->
+                state.facts[id] != null && state.facts[id] == previous.facts[id]
+            })
+        }
+        return state
+    }
 
     /** Atomic across every caller. Expiring relay memory never deletes application facts. */
     suspend fun updatePublic(now: Long, edit: (PublicGossipState) -> Unit) {
@@ -122,6 +132,8 @@ class GossipStore(private val data: DataStore<Preferences>) {
             state.prune(now)
             edit(state)
             prefs[Keys.PUBLIC] = json.encodeToString(PublicGossipState.serializer(), state)
+            // A failed commit is safe: decodePublic checks cached Facts against disk bytes.
+            lastPublic = state
         }
     }
 }

@@ -119,6 +119,10 @@ enum class TicketSupport {
  * parse never asks — and null counts as no. Never stored: [StoredAdmission] has no field
  * for it, and the Room asks again ([doorDrawing]) rather than trust a verdict written by
  * an older build.
+ *
+ * [original] names the ticket file kept for it (#568, [TicketOriginals]): set at import
+ * on an Admission that did not redraw, and shown at the door in its place. Null for one
+ * that redraws, and for any path with no file to keep (a link).
  */
 class Admission(
     val payload: ByteArray,
@@ -126,8 +130,11 @@ class Admission(
     val page: Int = 0,
     val corroborated: Boolean = false,
     val redrawable: Boolean? = null,
+    val original: String? = null,
 ) {
-    fun withRedrawable(redrawable: Boolean?) = Admission(payload, symbology, page, corroborated, redrawable)
+    fun withRedrawable(redrawable: Boolean?) = Admission(payload, symbology, page, corroborated, redrawable, original)
+
+    fun withOriginal(original: String?) = Admission(payload, symbology, page, corroborated, redrawable, original)
 
     override fun equals(other: Any?): Boolean =
         other is Admission &&
@@ -135,13 +142,14 @@ class Admission(
             symbology == other.symbology &&
             page == other.page &&
             corroborated == other.corroborated &&
-            redrawable == other.redrawable
+            redrawable == other.redrawable &&
+            original == other.original
 
     override fun hashCode(): Int =
-        listOf(payload.contentHashCode(), symbology, page, corroborated, redrawable).hashCode()
+        listOf(payload.contentHashCode(), symbology, page, corroborated, redrawable, original).hashCode()
 
     override fun toString(): String =
-        "Admission(symbology=$symbology, page=$page, corroborated=$corroborated, redrawable=$redrawable, " +
+        "Admission(symbology=$symbology, page=$page, corroborated=$corroborated, redrawable=$redrawable, original=$original, " +
             "payload=${payload.size} bytes)"
 }
 
@@ -195,6 +203,7 @@ data class ParsedTicket(
         get() {
             if (!isComplete) return false
             val count = readingCount
+            if (artist?.let(::carriesMoreThanAName) == true) return false
             if (count == null || count <= 1) return true
             return listOf(artistSupport, venueSupport, dateSupport).all { it == TicketSupport.BOTH }
         }
@@ -209,9 +218,15 @@ data class ParsedTicket(
      * it is not in the corpus both twins assert.
      */
     val redrawsEveryAdmission: Boolean get() = admissions.all { it.redrawable == true }
-}
 
-// --- Picking fields ---
+    /**
+     * Every Admission can be shown at the door (#568): redrawn and read back, or kept as
+     * the original file it came in. What [routeTicket] asks — a failed redraw with the
+     * file kept no longer needs the person. One with neither (a link's unredrawable
+     * payload) still goes to the prompt.
+     */
+    val showsEveryAdmission: Boolean get() = admissions.all { it.redrawable == true || it.original != null }
+}
 
 /**
  * The pure half of ticket reading: evidence in, a best-effort [ParsedTicket] out —
@@ -262,7 +277,11 @@ fun parseTicketFields(evidence: TicketEvidence): ParsedTicket {
             textSaw = { value -> text.lines.any { folded(it).contains(folded(value)) } },
             ocrIsBetter = { a, b -> letterCount(b) > letterCount(a) },
         )
-        artist = names(t.artist, o.artist)
+        // A text layer with no artist is not overruled by a line only OCR has: that
+        // line is a picture, a logo as often as a name (#526, `ocs-artist-image`).
+        // The person types the artist instead.
+        val oArtist = o.artist?.takeIf { t.artist != null || text.lines.any { line -> folded(line).contains(folded(it)) } }
+        artist = names(t.artist, oArtist)
         venue = names(t.venue, o.venue)
         date = crossCheck(
             t.date, o.date,
@@ -421,8 +440,6 @@ private fun <V : Any> crossCheck(
     }
 }
 
-// --- One reading's guess ---
-
 /** What the rules make of one reading on its own, before it is compared with another. */
 private class Guess(var artist: String? = null, var venue: String? = null, var date: LocalDate? = null)
 
@@ -520,6 +537,14 @@ private fun guess(lines: List<String>): Guess {
             if (found.venue == null) found.venue = lines[below]
             return found
         }
+        // The date heads the page: the venue is under it, and the artist, if the
+        // ticket prints one, is not a line this reading has. Guessing one from the
+        // lines further down gives a disclaimer or the venue a second time (#526,
+        // `ocs-artist-image`, where the artist is drawn as a picture).
+        if (above == null && below != null) {
+            if (found.venue == null) found.venue = lines[below]
+            return found
+        }
     }
     val ordered = (shouty + pool.filter { it !in shouty }).iterator()
     if (found.artist == null) found.artist = if (ordered.hasNext()) lines[ordered.next()] else null
@@ -528,6 +553,17 @@ private fun guess(lines: List<String>): Guess {
 }
 
 // --- Artist and venue ---
+
+/**
+ * An artist line with a bracket or a spaced dash in it most likely carries a tour or
+ * show name as well: `Dumdumboys – XL [romertallførti]` (#526). Nothing generic says
+ * where the band's name ends, so the whole line is the artist, and the person is
+ * asked to cut it down. A band whose real name has one costs a prompt, not a wrong Gig.
+ */
+fun carriesMoreThanAName(artist: String): Boolean =
+    artist.any { it in "[](){}" } || NAME_AND_MORE.containsMatchIn(artist)
+
+private val NAME_AND_MORE = Regex("\\s[-–—]\\s")
 
 private val ARTIST_LABELS = listOf("artist", "artists", "act", "performer", "performing", "headliner")
 private val VENUE_LABELS = listOf("venue", "location", "place", "where", "hall")
@@ -902,10 +938,11 @@ fun matchKnownNight(parsed: ParsedTicket, knownGigs: List<FmSetlist>): FmSetlist
  * vendor logo OCR read as an artist is exactly a complete, confident, wrong parse. A
  * match still needs only completeness, as on iOS: it adds nothing new to the line.
  *
- * **Nor is one whose barcode the app cannot show** (#441, story 29), on either path. An
- * Admission that did not read back as itself when redrawn ([checkedForRedraw]; an
- * unchecked one counts as not) sends the ticket to the prompt, which says which barcode
- * it is and to bring the PDF. Found at import, not at the door.
+ * **Nor is one whose barcode the app cannot show** (#441, story 29). An Admission that
+ * did not read back as itself when redrawn ([checkedForRedraw]; an unchecked one counts
+ * as not) sends the ticket to the prompt — unless the original file was kept for it
+ * (#568, [ParsedTicket.showsEveryAdmission]), which the Room shows instead. Only a
+ * link, with no file to keep, still asks for this reason.
  *
  * **Nor is one for a date a known night is already on** when it matched no act (the
  * #441 review): [knownNightThatDay] says why, and that night goes to the prompt as the
@@ -918,7 +955,7 @@ fun routeTicket(
 ): TicketRouting {
     val match = matchKnownNight(parsed, knownGigs)
     val sameDay = if (match == null) knownNightThatDay(parsed, knownGigs) else null
-    if (parsed.isComplete && parsed.redrawsEveryAdmission) {
+    if (parsed.isComplete && parsed.showsEveryAdmission) {
         if (match != null) return TicketRouting.AlreadyKnown(match)
         val night = parseFmDate(parsed.date!!)
         if (sameDay == null && parsed.canSkipPrompt && night != null && !night.isBefore(today)) {

@@ -108,7 +108,6 @@ func handoverPlan(
         } else if mineIds.contains(item.id) {
             plan.held.append(item.id)
         } else if let landed = received[item.id] {
-            // Already arrived, this session. Resolvable locally now, whatever it was.
             plan.fromGallery[item.id] = landed
         } else if item.kind == StoredMedia.Kind.note {
             // A **Note** is complete the moment the manifest is: text and a **Verdict**,
@@ -284,7 +283,9 @@ private func absorbing(mine: TimelineCache, theirs: TimelineCache,
     merged.gigMedia = join(media, mine.gigMedia, unionMedia)
     if !facts { return merged }
 
-    merged.gigAttendance = join(theirs.gigAttendance, mine.gigAttendance, unionAttendance)
+    // A kept original's name is a file on their phone, never on this one (#568).
+    merged.gigAttendance = join(theirs.gigAttendance.mapValues { $0.withoutOriginals() },
+                                mine.gigAttendance, unionAttendance)
     merged.gigLogs = join(theirs.gigLogs, mine.gigLogs, unionLog)
     merged.gigPlaylists = join(theirs.gigPlaylists, mine.gigPlaylists, unionPlaylists)
     // One current value per night, and mine is the one I am standing in front of.
@@ -333,12 +334,34 @@ func unionLog(_ kept: StoredLog, _ arriving: StoredLog) -> StoredLog {
 /// **The Admissions are not part of the claim, and both sides' are kept** (#441): the
 /// stronger record's first, then any payload only the other holds. Two phones that both
 /// planned the night, only one of them holding the ticket, must not lose the ticket to
-/// whichever record happened to win. Field for field with Android's `unionAttendance`.
+/// whichever record happened to win. **Nor is the setlist.fm lookup state** (#531): see
+/// `unionSetlistFmLookup`. Field for field with Android's `unionAttendance`.
 func unionAttendance(_ kept: StoredAttendance, _ arriving: StoredAttendance) -> StoredAttendance {
     let arrivingWins = evidence(arriving.provenance) > evidence(kept.provenance)
     var winner = arrivingWins ? arriving : kept
-    winner.admissions = mergedAdmissions(winner.admissions, arrivingWins ? kept.admissions : arriving.admissions)
+    let other = arrivingWins ? kept : arriving
+    winner.admissions = mergedAdmissions(winner.admissions, other.admissions)
+    winner.setlistFmLookup = unionSetlistFmLookup(winner.setlistFmLookup, other.setlistFmLookup)
     return winner
+}
+
+/// Two records of one night's lookups, as one (#531). A "not this night" said on either
+/// side holds on both, so the rejections are the union; the later lookup is the last
+/// one, so the schedule does not look again sooner than either side would have. The
+/// chip is `winner`'s, else `other`'s, less anything either side has since rejected.
+/// Field for field with Android's `unionSetlistFmLookup`.
+func unionSetlistFmLookup(_ winner: StoredSetlistFmLookup?,
+                          _ other: StoredSetlistFmLookup?) -> StoredSetlistFmLookup? {
+    guard let winner, let other else { return winner ?? other }
+    var rejected = winner.rejectedIds
+    for id in other.rejectedIds where !rejected.contains(id) { rejected.append(id) }
+    let asking = winner.possibleMatchPending ? winner : other
+    let pending = asking.pendingHitIds.filter { !rejected.contains($0) }
+    return StoredSetlistFmLookup(
+        lastLookupAt: [winner.lastLookupAt, other.lastLookupAt].compactMap { $0 }.max(),
+        rejectedIds: rejected,
+        pendingHitIds: pending,
+        pendingHits: asking.pendingHits.filter { pending.contains($0.id) })
 }
 
 private func evidence(_ provenance: String) -> Int {

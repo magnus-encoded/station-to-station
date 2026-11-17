@@ -16,7 +16,7 @@ settings:
     # with "redirect_uri: not matching configuration".
     SPOTIFY_CLIENT_ID: 4d0ca5e417a54b599b07bfac99671644
     SETLISTFM_API_KEY: ""
-    MARKETING_VERSION: "1.10.0"
+    MARKETING_VERSION: "1.12.1"
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
@@ -61,7 +61,10 @@ targets:
       path: StationToStation/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
-        UILaunchScreen: {}
+        # Ground, the same near-black the timeline is drawn on, so a cold start is
+        # one colour from the launch screen through to the first rows.
+        UILaunchScreen:
+          UIColorName: LaunchGround
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Bluetooth is now two things, and the difference matters enough to say here

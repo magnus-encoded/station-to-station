@@ -1,0 +1,545 @@
+[
+  {
+    "link": "station-to-station://timeline",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://timelines",
+    "intent": {
+      "type": "open",
+      "screen": "timelines"
+    }
+  },
+  {
+    "link": "station-to-station://programme",
+    "intent": {
+      "type": "open",
+      "screen": "programme"
+    }
+  },
+  {
+    "link": "station-to-station://settings",
+    "intent": {
+      "type": "open",
+      "screen": "settings"
+    }
+  },
+  {
+    "link": "station-to-station://Timeline",
+    "about": "screen names match case-insensitively",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://TIMELINES",
+    "intent": {
+      "type": "open",
+      "screen": "timelines"
+    }
+  },
+  {
+    "link": "station-to-station://Programme",
+    "intent": {
+      "type": "open",
+      "screen": "programme"
+    }
+  },
+  {
+    "link": "station-to-station://SETTINGS",
+    "intent": {
+      "type": "open",
+      "screen": "settings"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/",
+    "about": "a trailing slash names no action",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://timeline?date=2026-08-07",
+    "intent": {
+      "type": "open",
+      "screen": "timeline",
+      "date": "2026-08-07"
+    }
+  },
+  {
+    "link": "station-to-station://timelines?date=2026-08-07",
+    "intent": {
+      "type": "open",
+      "screen": "timelines",
+      "date": "2026-08-07"
+    }
+  },
+  {
+    "link": "station-to-station://timeline?date=2026-02-30",
+    "about": "not a calendar day: dropped, not fatal",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://timeline?date=yesterday",
+    "about": "not ISO: dropped",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://timeline?date=07-08-2026",
+    "about": "the form's dd-MM-yyyy is not the link's shape",
+    "intent": {
+      "type": "open",
+      "screen": "timeline"
+    }
+  },
+  {
+    "link": "station-to-station://timelines?date=2026-13-01",
+    "intent": {
+      "type": "open",
+      "screen": "timelines"
+    }
+  },
+  {
+    "link": "station-to-station://settings?date=2026-08-07",
+    "about": "only timeline and timelines carry a date",
+    "intent": {
+      "type": "open",
+      "screen": "settings"
+    }
+  },
+  {
+    "link": "station-to-station://settings/extra",
+    "about": "a reserved screen has no path",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://timeline/add-gig?artist=Gossip&venue=Rockefeller&date=2026-09-29",
+    "intent": {
+      "type": "addGig",
+      "artist": "Gossip",
+      "venue": "Rockefeller",
+      "date": "2026-09-29"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig?artist=Gossip",
+    "intent": {
+      "type": "addGig",
+      "artist": "Gossip"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig?artist=Devin%20Townsend%20%26%20Haken&venue=Sentrum%20Scene",
+    "intent": {
+      "type": "addGig",
+      "artist": "Devin Townsend & Haken",
+      "venue": "Sentrum Scene"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig?artist=Gossip&date=2026-02-30",
+    "about": "invalid date dropped",
+    "intent": {
+      "type": "addGig",
+      "artist": "Gossip"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig",
+    "about": "no params: the dialog opens empty",
+    "intent": {
+      "type": "addGig"
+    }
+  },
+  {
+    "link": "station-to-station://Timeline/Add-Gig?artist=Gossip&date=2026-09-29",
+    "about": "case-insensitive, text keeps its case",
+    "intent": {
+      "type": "addGig",
+      "artist": "Gossip",
+      "date": "2026-09-29"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig?artist=&venue=%20&date=2026-09-29",
+    "about": "blank is not given",
+    "intent": {
+      "type": "addGig",
+      "date": "2026-09-29"
+    }
+  },
+  {
+    "link": "station-to-station://timeline/add-gig/extra",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://timeline/no-such-action",
+    "about": "an unknown action on a known screen",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://gig/334c742d",
+    "intent": {
+      "type": "openGig",
+      "id": "334c742d"
+    }
+  },
+  {
+    "link": "station-to-station://gig?id=334c742d",
+    "about": "the legacy invite means the same as gig/<id>",
+    "intent": {
+      "type": "openGig",
+      "id": "334c742d"
+    }
+  },
+  {
+    "link": "station-to-station://Gig/334c742d",
+    "intent": {
+      "type": "openGig",
+      "id": "334c742d"
+    }
+  },
+  {
+    "link": "station-to-station://gig/Abc123",
+    "about": "ids keep their case",
+    "intent": {
+      "type": "openGig",
+      "id": "Abc123"
+    }
+  },
+  {
+    "link": "station-to-station://gig",
+    "about": "no id",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://gig?id=",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://gig/334c742d/no-such-action",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?Song1",
+    "about": "bare item: typed as the next song",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "Song1"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?Song1&Song2",
+    "about": "several bare items append in order",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "Song1",
+        "Song2"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?Song%20One&Song%20Two",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "Song One",
+        "Song Two"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?3=Song",
+    "about": "N=<text> replaces song N, 1-based",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [],
+      "replacements": {
+        "3": "Song"
+      }
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?A&2=B&C",
+    "about": "bare and numbered mix",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "A",
+        "C"
+      ],
+      "replacements": {
+        "2": "B"
+      }
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?3",
+    "about": "a song literally called 3 has no =",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "3"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?Fire%20%26%20Ice",
+    "about": "percent-encoded ampersand",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "Fire & Ice"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?1=Song%3DOne",
+    "about": "percent-encoded equals in the text",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [],
+      "replacements": {
+        "1": "Song=One"
+      }
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?A%3DB",
+    "about": "percent-encoded equals in a bare item",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "A=B"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?Song%23One",
+    "about": "percent-encoded hash",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "Song#One"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?a+b",
+    "about": "+ is a plus, not a space",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "a+b"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log?0=Song&x=Song&2=",
+    "about": "a zero, a non-number and an empty text are ignored",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/write-to-log",
+    "about": "nothing to write",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://gig/334c742d/Write-To-Log?A",
+    "about": "action names match case-insensitively",
+    "intent": {
+      "type": "writeToLog",
+      "gigId": "334c742d",
+      "appends": [
+        "A"
+      ],
+      "replacements": {}
+    }
+  },
+  {
+    "link": "station-to-station://log",
+    "about": "reserved and does nothing",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://log/334c742d",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://334c742d",
+    "intent": {
+      "type": "legacyPlace",
+      "gigId": "334c742d",
+      "as": "setlist"
+    }
+  },
+  {
+    "link": "station-to-station://dizzi90/334c742d",
+    "intent": {
+      "type": "legacyPlace",
+      "gigId": "334c742d",
+      "as": "singleLine"
+    }
+  },
+  {
+    "link": "station-to-station://Friends/334c742d",
+    "intent": {
+      "type": "legacyPlace",
+      "gigId": "334c742d",
+      "as": "woven"
+    }
+  },
+  {
+    "link": "station-to-station://friends/334c742d",
+    "intent": {
+      "type": "legacyPlace",
+      "gigId": "334c742d",
+      "as": "woven"
+    }
+  },
+  {
+    "link": "station-to-station://me",
+    "intent": {
+      "type": "me"
+    }
+  },
+  {
+    "link": "station-to-station://fixture/oya-2026",
+    "intent": {
+      "type": "fixture",
+      "name": "oya-2026",
+      "open": false
+    }
+  },
+  {
+    "link": "station-to-station://fixture/oya-2026/open",
+    "intent": {
+      "type": "fixture",
+      "name": "oya-2026",
+      "open": true
+    }
+  },
+  {
+    "link": "station-to-station://fixture/oya-2026/closed",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://unknown/334c742d/nothing",
+    "about": "three segments under no known screen",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://friend?u=dizzi90&name=Magnus",
+    "intent": {
+      "type": "passThrough",
+      "kind": "friend"
+    }
+  },
+  {
+    "link": "station-to-station://handover?h=192.168.1.2&p=4711&f=aa&k=bb",
+    "intent": {
+      "type": "passThrough",
+      "kind": "handover"
+    }
+  },
+  {
+    "link": "station-to-station://callback?code=abc&state=xyz",
+    "intent": {
+      "type": "passThrough",
+      "kind": "callback"
+    }
+  },
+  {
+    "link": "station-to-station://ticket?artist=Gossip&venue=Rockefeller&date=2026-09-29",
+    "intent": {
+      "type": "passThrough",
+      "kind": "ticket"
+    }
+  },
+  {
+    "link": "setlist2spotify://friend?u=dizzi90",
+    "about": "the old scheme still opens",
+    "intent": {
+      "type": "passThrough",
+      "kind": "friend"
+    }
+  },
+  {
+    "link": "setlist2spotify://334c742d",
+    "intent": {
+      "type": "legacyPlace",
+      "gigId": "334c742d",
+      "as": "setlist"
+    }
+  },
+  {
+    "link": "https://example.com/timeline",
+    "about": "a foreign scheme",
+    "intent": null
+  },
+  {
+    "link": "station-to-station:timeline",
+    "intent": null
+  },
+  {
+    "link": "timeline",
+    "intent": null
+  },
+  {
+    "link": "station-to-station://",
+    "intent": null
+  },
+  {
+    "link": "",
+    "about": "a blank link",
+    "intent": null
+  },
+  {
+    "link": "   ",
+    "intent": null
+  }
+]

@@ -50,6 +50,7 @@ struct Ticket: Codable, Equatable, Sendable {
     /// standard it can never meet would make every scanned ticket a prompt forever.
     var canSkipPrompt: Bool {
         guard isComplete else { return false }
+        if let artist, carriesMoreThanAName(artist) { return false }
         guard let readingCount, readingCount > 1 else { return true }
         return [artistSupport, venueSupport, dateSupport].allSatisfy { $0 == .both }
     }
@@ -61,6 +62,30 @@ struct Ticket: Codable, Equatable, Sendable {
     /// the *read*: what a platform can redraw is not the same on both (CoreImage has no
     /// Data Matrix), so it is not in the corpus both twins assert.
     var redrawsEveryAdmission: Bool { admissions.allSatisfy { $0.redrawable == true } }
+
+    /// Every **Admission** can be shown at the door (#568): redrawn and read back, or
+    /// kept as the original file it came in. What `routeTicket` asks — a failed redraw
+    /// with the file kept no longer needs the person.
+    var showsEveryAdmission: Bool { admissions.allSatisfy { $0.redrawable == true || $0.original != nil } }
+
+    /// Whether any **Admission** needs its original kept: one that did not redraw.
+    var needsOriginal: Bool { admissions.contains { $0.redrawable != true } }
+
+    /// Every original this ticket's **Admissions** name, once each.
+    var originals: Set<String> { Set(admissions.compactMap(\.original)) }
+
+    /// This ticket with `original` set on every **Admission** that did not redraw
+    /// (#568) — those, and only those, are shown from the file at the door.
+    func keepingOriginal(_ original: String?) -> Ticket {
+        guard let original else { return self }
+        var out = self
+        out.admissions = admissions.map { a in
+            var a = a
+            if a.redrawable != true { a.original = original }
+            return a
+        }
+        return out
+    }
 }
 
 extension Ticket {
@@ -104,12 +129,17 @@ extension Ticket {
 /// deposited and never stored: it is left out of the coding keys, `StoredAdmission` has
 /// no field for it, and the Room asks again rather than trust a verdict written by an
 /// older build.
+///
+/// `original` names the ticket file kept for it (#568, `TicketOriginals`): set by the
+/// app at import on an **Admission** that did not redraw, and shown at the door in its
+/// place. Never deposited, for `redrawable`'s reason: the extension cannot know.
 struct Admission: Codable, Equatable, Sendable {
     var payload: Data
     var symbology: String
     var page: Int = 0
     var corroborated: Bool = false
     var redrawable: Bool? = nil
+    var original: String? = nil
 
     private enum CodingKeys: String, CodingKey { case payload, symbology, page, corroborated }
 }
@@ -128,20 +158,6 @@ enum TicketSupport: String, Codable, Sendable {
         case .ocr: self = .ocr
         }
     }
-}
-
-/// A **Ticket** waiting on the prompt. Identity of its own because several can queue
-/// up, and `.sheet(item:)` has to be able to tell one blank one from the next.
-struct TicketDraft: Identifiable, Equatable {
-    let id = UUID()
-    let ticket: Ticket
-    /// The night already on the **Line** this may be for, as the prompt says it
-    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
-    /// answer is matched again (`confirmTicket`).
-    var possibleMatch: String? = nil
-    /// The inbox deposit this came from, left in the box until the prompt is answered
-    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
-    var depositId: String? = nil
 }
 
 /// What one PDF turned out to be worth.
@@ -170,7 +186,6 @@ struct TicketEvidence: Equatable, Sendable {
 struct TicketReading: Equatable, Sendable {
     enum Origin: String, Codable, Sendable { case textLayer, ocr }
     var origin: Origin
-    /// Text lines in reading order: down the page, then across it.
     var lines: [String]
 }
 
@@ -267,7 +282,13 @@ func parseTicketFields(_ evidence: TicketEvidence, calendar: Calendar = .current
                        textSaw: { value in text.lines.contains { folded($0).contains(folded(value)) } },
                        ocrIsBetter: { letterCount($1) > letterCount($0) })
         }
-        (ticket.artist, ticket.artistSupport) = split(names(t.artist, o.artist))
+        // A text layer with no artist is not overruled by a line only OCR has: that
+        // line is a picture, a logo as often as a name (#526, `ocs-artist-image`).
+        // The person types the artist instead.
+        let oArtist = o.artist.flatMap { value in
+            t.artist != nil || text.lines.contains { folded($0).contains(folded(value)) } ? value : nil
+        }
+        (ticket.artist, ticket.artistSupport) = split(names(t.artist, oArtist))
         (ticket.venue, ticket.venueSupport) = split(names(t.venue, o.venue))
         (ticket.date, ticket.dateSupport) = split(crossCheck(
             t.date, o.date,
@@ -487,6 +508,15 @@ private func guess(_ lines: [String], calendar: Calendar) -> Guess {
         if found.venue == nil { found.venue = lines[below] }
         return found
     }
+    // The date heads the page: the venue is under it, and the artist, if the ticket
+    // prints one, is not a line this reading has. Guessing one from the lines further
+    // down gives a disclaimer or the venue a second time (#526, `ocs-artist-image`,
+    // where the artist is drawn as a picture).
+    if shouty.isEmpty, let dateIndex, !pool.contains(where: { $0 < dateIndex }),
+       let below = pool.first(where: { $0 > dateIndex }) {
+        if found.venue == nil { found.venue = lines[below] }
+        return found
+    }
     var ordered = (shouty + pool.filter { !shouty.contains($0) }).makeIterator()
     if found.artist == nil { found.artist = ordered.next().map { lines[$0] } }
     if found.venue == nil { found.venue = ordered.next().map { lines[$0] } }
@@ -563,6 +593,15 @@ private func isUsableName(_ text: String) -> Bool {
 ///
 /// This used to guard only the caps lines on Android. #526 applies it to every guessed
 /// line, the ones around the date included.
+/// An artist line with a bracket or a spaced dash in it most likely carries a tour or
+/// show name as well: `Dumdumboys – XL [romertallførti]` (#526). Nothing generic says
+/// where the band's name ends, so the whole line is the artist, and the person is
+/// asked to cut it down. A band whose real name has one costs a prompt, not a wrong Gig.
+func carriesMoreThanAName(_ artist: String) -> Bool {
+    artist.contains { "[](){}".contains($0) }
+        || artist.range(of: #"\s[-–—]\s"#, options: .regularExpression) != nil
+}
+
 private func isGuessable(_ line: String) -> Bool {
     guard isUsableName(line) else { return false }
     if line.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) { return false }

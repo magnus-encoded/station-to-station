@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v7
+        # The analyzers below are third-party code run on this runner (#165). Nothing
+        # after checkout pushes, so the token is not left in .git/config for them.
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -50,18 +54,25 @@ jobs:
           }
           EOF
 
+      # Pinned to a commit (#165): its build scripts run here, so a later push to the
+      # tool's default branch must not become code this repository executes unread.
+      # Bump the SHA deliberately, after reading what changed.
       - name: Build slopguard-kotlin
+        env:
+          SLOPGUARD_KOTLIN_SHA: 40204ef8f382ed02ca5b143a55dfab1671840383
         run: |
-          git clone --depth 1 https://github.com/JeevanThandi/slopguard-kotlin.git "$RUNNER_TEMP/slopguard-kotlin"
+          mkdir -p "$RUNNER_TEMP/slopguard-kotlin"
           cd "$RUNNER_TEMP/slopguard-kotlin"
-          ./gradlew --no-daemon :app:installDist \
+          { git init --quiet \
+            && git fetch --quiet --depth 1 https://github.com/JeevanThandi/slopguard-kotlin.git "$SLOPGUARD_KOTLIN_SHA" \
+            && git checkout --quiet FETCH_HEAD \
+            && ./gradlew --no-daemon :app:installDist; } \
             || echo "::warning::slopguard-kotlin failed to build; skipping the Kotlin CRAP report"
 
+      # No secrets here (#165): the unit tests the analyzer drives need no key, as a
+      # fork's pull request build already shows, and the analyzer is third-party code.
       - name: Analyze
         working-directory: android
-        env:
-          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
-          SETLISTFM_API_KEY: ${{ secrets.SETLISTFM_API_KEY }}
         run: |
           bin="$RUNNER_TEMP/slopguard-kotlin/app/build/install/slopguard-kotlin/bin/slopguard-kotlin"
           [ -x "$bin" ] || { echo "::warning::no slopguard-kotlin binary; skipping"; exit 0; }
@@ -96,6 +107,10 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v7
+        # The analyzers below are third-party code run on this runner (#165). Nothing
+        # after checkout pushes, so the token is not left in .git/config for them.
+        with:
+          persist-credentials: false
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -106,14 +121,20 @@ jobs:
 
       # The published binary rather than a source build: slopguard-swift pulls in
       # swift-syntax, and compiling that costs more than the analysis it enables.
+      #
+      # Pinned to one release and its checksum (#165): "latest" would run whatever the
+      # tool's owner publishes next. Bump both together, deliberately.
       - name: Install slopguard-swift
         run: |
-          gh release download --repo JeevanThandi/SlopGuard-Swift \
+          gh release download "$SLOPGUARD_SWIFT_TAG" --repo JeevanThandi/SlopGuard-Swift \
             --pattern '*macos-universal.tar.gz' --dir "$RUNNER_TEMP" \
+            && echo "$SLOPGUARD_SWIFT_SHA256  $(ls "$RUNNER_TEMP"/*macos-universal.tar.gz)" | shasum -a 256 -c - \
             && tar xzf "$RUNNER_TEMP"/*macos-universal.tar.gz -C "$RUNNER_TEMP" \
             || echo "::warning::could not install slopguard-swift; skipping the Swift CRAP report"
         env:
           GH_TOKEN: ${{ github.token }}
+          SLOPGUARD_SWIFT_TAG: v0.1.0
+          SLOPGUARD_SWIFT_SHA256: 0a21a11ed4792c1d7cae51f17db068909cee48cadf6e13c093b27a16d0582b08
 
       - name: Select an available iOS Simulator
         id: sim

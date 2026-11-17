@@ -1,5 +1,11 @@
 import Foundation
 import Network
+import os
+
+/// What the Reconcile did, step by step, in release builds too: a session that ends quietly
+/// is otherwise indistinguishable from one that never started. Counts and sides only —
+/// never a key, a name or a night.
+private let log = Logger(subsystem: "io.github.magnusencoded.stationtostation", category: "ContactExchange")
 
 /// A peer that vanishes mid-session — walks out of the room, drops off the WiFi — must not
 /// leave a session waiting on bytes that are never coming. TCP keepalive is what notices,
@@ -40,17 +46,33 @@ final class ContactExchange {
     private let mine: () async -> TimelineCache
     private let gallery: () async -> [GalleryItem]
     private let onLanded: ([String: [StoredMedia]]) async -> Void
+    /// The **Lane** held for each Contact, by their key (#405). Re-read per session.
+    private let lanesByKey: () async -> [String: [FmSetlist]]
+    /// A verified Contact's **Nights** that I did not hold yet, by their key (#405).
+    private let onNights: (String, [FmSetlist], [String]) async -> Void
+    /// My own **Spine**, which decides which Nights an offer could be about (#405).
+    private let myNights: () async -> [FmSetlist]
+    /// Media for Nights I have not joined: offered, never filed (#405).
+    private let onOffers: ([String: MediaOffer]) async -> Void
 
     init(contactKeys: @escaping () async -> [String],
          manifest: @escaping () async -> HandoverManifest,
          mine: @escaping () async -> TimelineCache,
          gallery: @escaping () async -> [GalleryItem],
-         onLanded: @escaping ([String: [StoredMedia]]) async -> Void) {
+         onLanded: @escaping ([String: [StoredMedia]]) async -> Void,
+         lanesByKey: @escaping () async -> [String: [FmSetlist]] = { [:] },
+         onNights: @escaping (String, [FmSetlist], [String]) async -> Void = { _, _, _ in },
+         myNights: @escaping () async -> [FmSetlist] = { [] },
+         onOffers: @escaping ([String: MediaOffer]) async -> Void = { _ in }) {
         self.contactKeys = contactKeys
         self.manifest = manifest
         self.mine = mine
         self.gallery = gallery
         self.onLanded = onLanded
+        self.lanesByKey = lanesByKey
+        self.onNights = onNights
+        self.myNights = myNights
+        self.onOffers = onOffers
     }
 
     private let peers = ContactPeers()
@@ -106,6 +128,7 @@ final class ContactExchange {
         }
         listener.start(queue: .global(qos: .utility))
         self.listener = listener
+        log.info("started")
 
         peers.deliverTo { [weak self] endpoint in
             Task { @MainActor in
@@ -117,6 +140,7 @@ final class ContactExchange {
     }
 
     func stop() {
+        if listener != nil { log.info("stopped") }
         // Nil'd before anything else, and `tls` is cleared below, so a discovery already in
         // flight on the browse queue finds nothing to dial by the time it reaches the
         // main actor.
@@ -178,14 +202,24 @@ final class ContactExchange {
 
     private func run(_ connection: NWConnection, isServer: Bool) {
         guard let ownCertificate = tls?.certificate else { connection.cancel(); return }
-        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded] in
+        let side = isServer ? "server" : "client"
+        let session = Task.detached(priority: .utility) { [warmup, contactKeys, mine, onLanded, lanesByKey, onNights, myNights, onOffers] in
             defer { connection.cancel() }
-            guard let peerCertificate = await ready(connection) else { return }
+            guard let peerCertificate = await ready(connection) else {
+                log.notice("\(side, privacy: .public): handshake failed")
+                return
+            }
+            log.info("\(side, privacy: .public): handshake done")
             let candidates = await contactKeys()
-            if candidates.isEmpty { return }
+            if candidates.isEmpty {
+                log.notice("\(side, privacy: .public): no contact keys to check against")
+                return
+            }
             guard let warmed = await warmup?.value else { return }
             let (manifest, gallery) = warmed
             let cache = await mine()
+            let lanes = await lanesByKey()
+            let spine = await myNights()
 
             var refById: [String: String] = [:]
             for item in cache.gigMedia.values.flatMap({ $0 }) { refById[item.id] = item.ref }
@@ -208,9 +242,32 @@ final class ContactExchange {
                 landNotes: { notes in
                     if Task.isCancelled { return }
                     await onLanded(notes)
+                },
+                heldLane: { key in lanes[key] ?? [] },
+                // Landed for the notes' reason: text, complete the moment the manifest is,
+                // and not to be held up behind a photograph.
+                landNights: { key, nights, withdrawn in
+                    if Task.isCancelled { return }
+                    log.info("\(side, privacy: .public): \(nights.count, privacy: .public) nights landing, \(withdrawn.count, privacy: .public) withdrawn")
+                    await onNights(key, nights, withdrawn)
+                },
+                myNights: spine,
+                // Held, not filed. Their tiers are cut now, for the landing's reason below:
+                // accepting later must not land a blank cell.
+                landOffers: { offers in
+                    if Task.isCancelled { return }
+                    for item in offers.values.flatMap(\.media) where !item.ref.isEmpty {
+                        await PhotoLibrary.writeReconcileTiers(mediaId: item.id, ref: item.ref)
+                    }
+                    await onOffers(offers)
                 }
             )
-            guard let landing, !landing.isEmpty else { return }
+            guard let landing else {
+                log.notice("\(side, privacy: .public): session ended without a landing (not a contact, or dropped)")
+                return
+            }
+            log.info("\(side, privacy: .public): session done, \(landing.values.map(\.count).reduce(0, +), privacy: .public) media landed")
+            if landing.isEmpty { return }
             // The screen closed while this was in flight. `stop()` cancels the connection
             // too, so a session almost always dies at a read — but once the bytes are all
             // here there is no read left to fail, and nothing about #265 is supposed to

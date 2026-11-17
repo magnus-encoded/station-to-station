@@ -118,3 +118,38 @@ object TextLayerReader : PdfTextReader {
 
     override suspend fun lines(page: PdfPage): List<String> = page.textLayer.orEmpty().split('\n')
 }
+
+/** The longest side, in pixels, a PDF page is ever rasterized to (#165). */
+const val MAX_PAGE_EDGE_PX = 4096
+
+/** The most pixels one rasterized PDF page may hold (#165): an A3 page at 200 dpi fits. */
+const val MAX_PAGE_PIXELS = 10_000_000L
+
+/**
+ * The pixel size to draw a [widthPt] × [heightPt] PDF page at, [pxPerPt] pixels to the
+ * point, shrunk with its aspect kept so that neither side passes [maxEdge] and the area
+ * stays within [maxPixels] (#165).
+ *
+ * A page's size is whatever the PDF's MediaBox says, and a shared PDF is untrusted input.
+ * A 14,400-point square page at 200 dpi asked for a 40,000-pixel square bitmap, and a page
+ * one point wide and 14,400 tall did the same at the door's fixed width; either one threw
+ * out of `Bitmap.createBitmap` and took the app down instead of failing the import. A
+ * real ticket — A4, Letter, even A3 at 200 dpi — is inside both bounds and is drawn at
+ * exactly the size it was before. Never less than one pixel a side. The Swift twin is
+ * `boundedPageSize` in `PdfTicketExtractor.swift`.
+ */
+fun boundedPageSize(
+    widthPt: Int,
+    heightPt: Int,
+    pxPerPt: Float,
+    maxEdge: Int = MAX_PAGE_EDGE_PX,
+    maxPixels: Long = MAX_PAGE_PIXELS,
+): Pair<Int, Int> {
+    val scale = pxPerPt.toDouble().takeIf { it.isFinite() && it > 0 } ?: 1.0
+    val width = widthPt.coerceAtLeast(1) * scale
+    val height = heightPt.coerceAtLeast(1) * scale
+    var shrink = minOf(1.0, maxEdge / width, maxEdge / height)
+    val area = width * height * shrink * shrink
+    if (area > maxPixels) shrink *= kotlin.math.sqrt(maxPixels / area)
+    return (width * shrink).toInt().coerceIn(1, maxEdge) to (height * shrink).toInt().coerceIn(1, maxEdge)
+}

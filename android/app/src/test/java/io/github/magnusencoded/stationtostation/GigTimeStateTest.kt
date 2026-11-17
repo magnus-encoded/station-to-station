@@ -97,8 +97,6 @@ class GigTimeStateTest {
         assertEquals("no setlist yet", plannedStatus(today.minusYears(18), now))
     }
 
-    // --- The night has passed: the record answers, not the calendar (#127) -------
-
     /** Three days after Ringnes Festival's last night — every gig below is behind us. */
     private val afterRingnes = LocalDate.of(2026, 8, 10).atTime(12, 0)
 
@@ -119,7 +117,6 @@ class GigTimeStateTest {
         assertEquals(true, isPlanned(StoredAttendance.Provenance.PLANNED))
         assertEquals(false, isPlanned(StoredAttendance.Provenance.ATTENDED))
         assertEquals(false, isPlanned(StoredAttendance.Provenance.CHECKED_IN))
-        // An imported night nobody ever claimed anything about isn't a plan either.
         assertEquals(false, isPlanned(null))
     }
 

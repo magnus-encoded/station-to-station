@@ -15,119 +15,13 @@ private let raised = Color(red: 0x17 / 255, green: 0x12 / 255, blue: 0x1F / 255)
 private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 /// Mine. Never "the accent colour" — it means *mine*, at every Resolution
 /// (same mark StationView draws its Spine with).
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-
-/// "AmandaSvea is also here", for the **Contacts** a **Pass** just proved are in the room.
-///
-/// `nil` for an empty room rather than a line saying so: "nobody is here" is a claim this
-/// phone cannot make — a **Contact** across a hall, or with their phone in a pocket, is not
-/// absent — so silence is the honest answer, and it keeps the line out of the way on every
-/// quiet night. Three names collapse to a count because the sentence is a glance, not a list.
-func alsoHereSentence(_ here: [String]) -> String? {
-    switch here.count {
-    case 0: return nil
-    case 1: return "\(here[0]) is also here"
-    case 2: return "\(here[0]) and \(here[1]) are also here"
-    default: return "\(here[0]) and \(here.count - 1) others are also here"
-    }
-}
-
-/// The **Seen with** line's words (#499).
-///
-/// "Seen with", not "here" and not "checked in": the record outlives the night's **Gossip**, and
-/// a present-tense line on a **Gig** from last March would be the app claiming a room it is not
-/// in. The unnamed devices are counted rather than listed because there is nothing to list —
-/// a **Blind relay** carries a key, never a person — and they are still said out loud, because
-/// silently dropping them would report a quieter room than this phone actually stood in.
-///
-/// Worded identically to Android's `seenWithLine`: two apps showing the same night should not
-/// phrase it differently.
-func seenWithLine(_ seen: SeenWith) -> String {
-    let others = seen.others == 0 ? nil : "\(seen.others) other\(seen.others == 1 ? "" : "s")"
-    let parts = [seen.named.isEmpty ? nil : seen.named.joined(separator: ", "), others].compactMap { $0 }
-    return "Seen with " + parts.joined(separator: " + ")
-}
-
-/// The bullet on a **Presence row**: whether the radio is standing at this night (#501).
-///
-/// Amber for the **Active Gig**, which is this app's one meaning for amber — *mine* — and here
-/// it says the radio is mine and it is here. `faint` for the off state: plainly present, plainly
-/// not lit, and distinct from the amber at a glance rather than by a hue somebody has to
-/// compare. The blink is what says this is the radio's state and not a label; one animation for
-/// both colours, because two that pulsed differently would read as two kinds of thing.
-private struct GossipBulletMark: View {
-    let bullet: GossipBullet
-    @State private var dimmed = false
-
-    var body: some View {
-        Circle()
-            .fill(bullet == .on ? amber : faint)
-            .frame(width: 7, height: 7)
-            .opacity(dimmed ? 0.25 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dimmed = true }
-            }
-    }
-}
-
-/// A **Gig**'s **Presence row**: that this phone is standing here, and whether the radio is
-/// standing here with it (#501).
-///
-/// The check-in line is the row, with the bullet in front of it and the whole line the tap
-/// target — iOS's **Room** already says "✓ checked in" in amber there, and a second control
-/// beside it would be two statements about one thing. The "is also here" and **Seen with** lines
-/// stay where #484 and #499 put them, under the header: Android composes all three because its
-/// bottom bar is one block, and copying that layout here would be a port of a screen rather than
-/// of a decision.
-///
-/// A night that cannot **Gossip** draws no bullet and does nothing when tapped, which is the
-/// honest reading of a control with nothing behind it.
-///
-/// The clock is here and not in the model: a night's grace runs out with nobody doing anything,
-/// and the bullet has to go out while somebody is looking at it. `onExpiry` hands that same tick
-/// back up, because the *other* night's row — the one that inherits the amber — is a different
-/// **Room**, and only the timeline knows which night is next.
-///
-/// `eligibleUntil` is the deadline with **no stop applied** (see `gossipBullet`).
-private struct GossipPresenceRow: View {
-    let label: String
-    let eligibleUntil: Int64?
-    let active: Bool
-    let stopped: Bool
-    let onSelect: () -> Void
-    let onExpiry: () -> Void
-
-    var body: some View {
-        // No clock and no blink on a night with nothing to draw: most **Rooms** ever opened are
-        // last year's, and a ticking view on each of them is a cost for a bullet that will
-        // never appear.
-        if (eligibleUntil ?? 0) <= 0 {
-            line(nil)
-        } else {
-            TimelineView(.periodic(from: .now, by: 1)) { tick in
-                let now = Int64(tick.date.timeIntervalSince1970 * 1000)
-                let bullet = gossipBullet(eligibleUntil: eligibleUntil, active: active,
-                                          stopped: stopped, now: now)
-                line(bullet)
-                    .onChange(of: bullet == nil) { gone in if gone { onExpiry() } }
-            }
-        }
-    }
-
-    private func line(_ bullet: GossipBullet?) -> some View {
-        HStack(spacing: 6) {
-            if let bullet { GossipBulletMark(bullet: bullet) }
-            Text(label).font(.system(size: 13)).foregroundStyle(amber)
-        }
-        .padding(.top, 6)
-        .contentShape(Rectangle())
-        .onTapGesture { if bullet != nil { onSelect() } }
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(bullet == nil ? "" : "Stand at this gig — gossip speaks for it")
-    }
-}
+/// Meeting green, Android's `Crossed`: here only on a *maybe* (#405), a meeting that
+/// might have been.
+private let crossed = Color(red: 0x6F / 255, green: 0xBF / 255, blue: 0x9C / 255)
 
 /// A row of the night: an encore divider, or a performed song (numbered; a tape
 /// track has no number — it played but is not one of the band's songs).
@@ -165,12 +59,18 @@ struct GigView: View {
     @State private var filing = false
     @State private var adopting = false
     @State private var deleting = false
+    /// Whether the "Possible match on setlist.fm" list is open (#531).
+    @State private var askingMatch = false
+    /// Which **Contact**'s offer is being answered, by their Night id (#405).
+    @State private var answeringOffer: String?
+    /// Which *maybe* is being asked from its tag (#405).
+    @State private var askingMaybe: MaybeNight?
     @State private var adoptLink = ""
 
     /// What this delete actually costs, said plainly. The count is of keepsakes whose
     /// original has already left the library, so this app's copy is the last one.
     private var deleteWarning: String {
-        let lost = model.state.selectedSetlist.map { model.photosLostByDeleting($0.id) } ?? 0
+        let lost = model.state.selectedSetlist.map { model.gig.photosLostByDeleting($0.id) } ?? 0
         switch lost {
         case 0: return "The night, its Log and the keepsakes on it go. Your photographs stay in your library."
         case 1: return "Its photograph is only stored here. Deleting the night deletes it."
@@ -240,6 +140,7 @@ struct GigView: View {
                                 .font(.system(size: 12)).foregroundStyle(muted)
                                 .padding(.horizontal, 24).padding(.top, 2)
                         }
+                        if !model.state.selectedIsMine { JoinGigButton(show: show) }
                         let log = model.state.gigLog
                         let woven = weaveSetlist(published: rows.map(publishedTitle),
                                                  logged: log.songs)
@@ -318,7 +219,7 @@ struct GigView: View {
                 // and a night from 1992. Pull-to-refresh is the platform's own
                 // answer to this and ships accessible (ADR-0017).
                 .refreshable {
-                    if let curtain = offers?.curtain { await model.pullCurtain(curtain) }
+                    if let curtain = offers?.curtain { await model.setlists.pullCurtain(curtain) }
                 }
             } else {
                 Text("No gig selected.").foregroundStyle(muted)
@@ -328,7 +229,7 @@ struct GigView: View {
         // move while nobody is looking — a night whose grace lapsed in a pocket hands the amber
         // to the next one — and the row's own clock only runs for a **Room** that was already
         // open when it happened.
-        .task { model.refreshGossipPresence() }
+        .task { model.gossip.refreshGossipPresence() }
         .toolbar {
             // Only for a night this app minted. A night that already has a setlist.fm
             // page has nothing to adopt, and offering it there would be an invitation
@@ -355,7 +256,7 @@ struct GigView: View {
             // choice here). VoiceOver gets the same verb-phrased label Android's
             // custom action uses rather than the symbol's own name.
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { model.toggleContactLight() } label: {
+                Button { model.navigation.toggleContactLight() } label: {
                     Image(systemName: model.state.contactLight ? "lightswitch.on" : "lightswitch.off")
                 }
                 .tint(model.state.contactLight ? amber : faint)
@@ -383,7 +284,7 @@ struct GigView: View {
                 .autocorrectionDisabled()
             Button("Adopt") {
                 if let show = model.state.selectedSetlist {
-                    model.adoptSetlistLink(gigId: show.id, linkOrId: adoptLink)
+                    model.gig.adoptSetlistLink(gigId: show.id, linkOrId: adoptLink)
                 }
                 adoptLink = ""
             }
@@ -394,10 +295,31 @@ struct GigView: View {
         // Asked always, where Android asks only when it holds the only copy of a
         // photograph. The Log goes either way, and a written record of what I heard is
         // not a pointer into anything that could give it back.
+        // The chip opened (#531): each hit a lookup was not sure of. A row adopts it;
+        // "None of these" rejects them all; "Not now" leaves the question waiting.
+        .sheet(isPresented: $askingMatch) {
+            if let show = model.state.selectedSetlist, show.isLocal {
+                PossibleMatchSheet(
+                    gigId: show.id,
+                    yourVenue: show.venue?.name,
+                    fromTicket: !(model.state.attendanceByGig[show.id]?.admissions.isEmpty ?? true),
+                    onPick: { hitId in
+                        model.setlists.acceptSetlistFmMatch(gigId: show.id, setlistId: hitId)
+                        askingMatch = false
+                    },
+                    onNone: {
+                        model.setlists.rejectSetlistFmMatches(gigId: show.id)
+                        askingMatch = false
+                    },
+                    onDismiss: { askingMatch = false }
+                )
+                .environmentObject(model)
+            }
+        }
         .alert("Delete this night?", isPresented: $deleting) {
             Button("Delete", role: .destructive) {
                 if let show = model.state.selectedSetlist {
-                    model.deleteLocalGig(show.id)
+                    model.gig.deleteGig(show.id)
                     nav.pop()
                 }
             }
@@ -419,7 +341,7 @@ struct GigView: View {
         .accessibilityAction(named: model.state.contactLight
             ? "Turn the contact light off"
             : "Turn the contact light on, see this night as a Contact does") {
-            model.toggleContactLight()
+            model.navigation.toggleContactLight()
         }
         // Back is a chevron with no label, and the swipe that also does it is a
         // gesture VoiceOver consumes.
@@ -433,7 +355,7 @@ struct GigView: View {
     /// about.
     private func gigPreamble(_ show: FmSetlist) -> String {
         let alsoThere = model.state.friends.filter { f in
-            !f.setlistfm.isEmpty && (model.state.showsByFriend[f.setlistfm] ?? []).contains { $0.id == show.id }
+            !f.laneKey.isEmpty && (model.state.showsByFriend[f.laneKey] ?? []).contains { $0.id == show.id }
         }.map(\.name)
         return preamble(people: alsoThere, venue: show.venue?.name, songCount: show.performed().count)
     }
@@ -442,7 +364,7 @@ struct GigView: View {
     /// friends list under a setlist.fm handle. Nothing joins the two yet, so
     /// the promise degrades to "someone else" rather than inventing a name.
     private func senderName(_ key: String) -> String? {
-        model.state.friends.first { $0.setlistfm == key }?.name
+        model.state.friends.nameOf(key)
     }
 
     /// The state of this night, as known — one value, decided once (#177).
@@ -474,6 +396,64 @@ struct GigView: View {
         )
     }
 
+    /// Whose offer this is: the Contact's name, or "A Contact" when their key is not on my list.
+    private func mediaOfferSender(_ offer: MediaOffer) -> String {
+        mediaOfferSenderName(offer, friends: model.state.friends)
+    }
+
+    /// A **Contact** was out this date under a Night nothing links to this one (#405): a
+    /// *maybe*. It waits here costing nothing, and is asked outright only when I go to share
+    /// media from this Night. Android's `EventTag` for the same.
+    private var maybeTags: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(model.contacts.maybesOnSelected()) { maybe in
+                let line = maybeTagLine(maybe)
+                Button { askingMaybe = maybe } label: {
+                    Text(line)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(crossed)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(crossed, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .accessibilityLabel("\(line). \(maybeTheirNight(maybe)).")
+                .accessibilityHint("Opens same night or not.")
+            }
+        }
+        .modifier(MaybeNightAlert(asking: $askingMaybe))
+    }
+
+    /// The setlist.fm id, rendered (Android's header `EventTag`). It *is* the record's
+    /// setlist.fm id, and its absence is the stub condition showing itself: that id is the
+    /// correspondence key between people, so this pill is where my record meets everyone
+    /// else's. It opens the canonical setlist page, never a constructed edit url, which
+    /// needs no login. A night with no id says "local" and does nothing: an `/edit` link
+    /// would only show a signed-out reader a sign-in wall.
+    @ViewBuilder
+    private func setlistFmPill(_ show: FmSetlist) -> some View {
+        if let page = show.url.flatMap(URL.init(string:)) {
+            Button { openURL(page) } label: {
+                Text("\(show.id) \u{2197}")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(slate)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .overlay(Capsule().stroke(slate, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            // The words without the "↗", which VoiceOver reads as an arrow (#164).
+            .accessibilityLabel("Link to this setlist on setlist.fm")
+        } else {
+            Text("local")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(faint)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().stroke(faint, lineWidth: 1))
+                .padding(.top, 6)
+        }
+    }
+
     private func header(_ show: FmSetlist, _ room: Room?) -> some View {
         // Manual check-in (#174) is the only one there is when location was refused
         // or the venue couldn't be geocoded — the **Room**'s own offer, the same
@@ -484,7 +464,42 @@ struct GigView: View {
                 .font(.system(size: 11, weight: .semibold)).kerning(1).foregroundStyle(faint)
             Text(show.artist?.name ?? "Unknown artist")
                 .font(.system(size: 26, design: .serif)).foregroundStyle(ink)
+                .accessibilityAddTraits(.isHeader)
             Text(show.venueLine()).font(.system(size: 14)).foregroundStyle(muted)
+            setlistFmPill(show)
+            // A lookup found something but was not sure (#531): the question waits here,
+            // on the night, until it is answered. Dismissing the list leaves it waiting;
+            // the automatic checks pause meanwhile.
+            if show.isLocal,
+               model.state.attendanceByGig[show.id]?.setlistFmLookup?.possibleMatchPending == true {
+                Button { askingMatch = true } label: {
+                    Text(possibleMatchTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(amber)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(amber, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+            }
+            // A **Contact** sent media for a Night of theirs on this date that I have not
+            // joined (#405). Offered, never filed: it waits here, on the Night it might be,
+            // until I say yes or no.
+            ForEach(offersWaiting(model.state.mediaOffers, on: show.eventDate)) { waiting in
+                let line = mediaOfferLine(waiting.offer, sender: mediaOfferSender(waiting.offer))
+                Button { answeringOffer = waiting.night } label: {
+                    Text(line)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(muted)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(muted, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .accessibilityLabel(line)
+                .accessibilityHint("Opens accept or decline.")
+            }
+            maybeTags
             // The same swap that was already here, with the ticket now on the near
             // side of it (#414). Checking in is what retires the barcode — you are
             // inside — so the checked-in line replaces the QR rather than sitting
@@ -504,8 +519,8 @@ struct GigView: View {
                         (model.state.gossipGigAliases[show.id] ?? [show.id]).contains($0)
                     } ?? false,
                     stopped: model.state.gossipStoppedGigs.contains(show.id),
-                    onSelect: { model.selectGossipGig(show.id) },
-                    onExpiry: { model.refreshGossipPresence() })
+                    onSelect: { model.gossip.selectGossipGig(show.id) },
+                    onExpiry: { model.gossip.refreshGossipPresence() })
             } else {
                 // The fold decides only whether to show the ticket, exactly as Android's
                 // does; `TicketAtTheDoor` draws every Admission in its own symbology,
@@ -517,12 +532,14 @@ struct GigView: View {
                 if room?.checkIn == true {
                     Text("I'm here — check in").font(.system(size: 13)).foregroundStyle(amber)
                         .padding(.top, 6)
-                        .onTapGesture { model.checkIn(show.id) }
+                        .onTapGesture { model.gig.checkIn(show.id) }
+                        .accessibilityAddTraits(.isButton)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24).padding(.bottom, 16)
+        .modifier(MediaOfferAlert(answering: $answeringOffer, show: show))
     }
 
     /// Calendar, maps and "I'm not going" (#175) — only for a gig I actually hold a
@@ -558,12 +575,20 @@ struct GigView: View {
                         .contentShape(Rectangle())
                         .padding(.vertical, 6)
                     }
+                    // The words without the "↗", which VoiceOver reads as an arrow (#164).
+                    .accessibilityLabel(made.count == 1
+                                        ? "Open the playlist"
+                                        : "Open \(playlist.name.nilIfBlank ?? "the playlist")")
                     .contextMenu {
                         Button(role: .destructive) {
-                            model.removePlaylist(show.id, url: playlist.url)
+                            model.playlist.removePlaylist(show.id, url: playlist.url)
                         } label: {
                             Label("Drop this link", systemImage: "trash")
                         }
+                    }
+                    // Named in the actions rotor too, beside the menu it sits in.
+                    .accessibilityAction(named: "Drop this link") {
+                        model.playlist.removePlaylist(show.id, url: playlist.url)
                     }
                 }
             }
@@ -586,7 +611,7 @@ struct GigView: View {
                     Label("Added to your calendar", systemImage: "checkmark.circle")
                         .foregroundStyle(muted)
                 } else if alcove == .addToCalendar {
-                    Button { model.addToCalendar(show) } label: {
+                    Button { model.planning.addToCalendar(show) } label: {
                         Label("Add to calendar", systemImage: "calendar.badge.plus")
                     }
                 }
@@ -596,7 +621,7 @@ struct GigView: View {
                     }
                 }
                 Button(role: .destructive) {
-                    model.removePlannedGig(show.id)
+                    model.gig.removePlannedGig(show.id)
                     nav.pop()
                 } label: {
                     Text("I'm not going")
@@ -615,7 +640,9 @@ struct GigView: View {
         return HStack {
             Text("\(name) · gossip, experimental").font(.system(size: 11)).foregroundStyle(muted)
             Spacer()
-            Button("Block") { model.blockGossip(fact.author) }.font(.system(size: 11))
+            Button("Block") { model.gossip.blockGossip(fact.author) }.font(.system(size: 11))
+                // Every row's Block reads alike without whose it is (#164).
+                .accessibilityLabel("Block \(name)")
         }.padding(.horizontal, 24)
     }
 
@@ -627,7 +654,7 @@ struct GigView: View {
         // Mine is an index into the Log, and the × and the correction panel act on it
         // there — the published row beside it is never touched by either.
         let remove: (() -> Void)? = (canLog ? line.logged : nil).map { j in
-            { correctingLog = nil; model.removeFromLog(j) }
+            { correctingLog = nil; model.gig.removeFromLog(j) }
         }
         if let p = line.published {
             switch rows[p] {
@@ -697,3 +724,4 @@ private func publishedTitle(_ row: EventRow) -> String? {
     if case .song(_, let name, _) = row { return name }
     return nil
 }
+

@@ -194,7 +194,6 @@ class GossipPolicyTest {
 
         assertEquals(first, again)
         assertNotEquals(first, other)
-        // Nothing was invented or dropped on the way through the shuffle.
         assertEquals(seen.toSet(), first.toSet())
     }
 

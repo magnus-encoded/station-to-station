@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,7 +103,12 @@ fun GossipPresenceRow(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .let { if (bullet == null) it else it.clickable(onClick = onSelect) }
+                .let { if (bullet == null) it else it.clickable(onClickLabel = "Gossip for this gig", onClick = onSelect) }
+                // The bullet's state is its colour alone, so say it (#164).
+                .let {
+                    if (bullet == null) it
+                    else it.semantics { stateDescription = if (bullet == GossipBullet.ON) "gossip on" else "gossip off" }
+                }
                 .padding(vertical = 6.dp),
         ) {
             if (bullet != null) {

@@ -1,0 +1,27 @@
+{
+  "me": "dizzi90",
+  "friends": [{ "setlistfm": "Lemmy", "name": "Lemmy" }],
+  "shows": {
+    "dizzi90": [
+      {
+        "id": "g1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "Ghost" },
+        "venue": { "name": "Ekebergsletta" },
+        "url": "https://www.setlist.fm/setlist/ghost/2026/ekebergsletta-oslo-norway-g1.html"
+      }
+    ],
+    "Lemmy": [
+      {
+        "id": "f1",
+        "eventDate": "25-06-2026",
+        "artist": { "name": "Tons of Rock" },
+        "venue": { "name": "Ekebergsletta" }
+      }
+    ]
+  },
+  "festivals": {
+    "tor2026": { "id": "tor2026", "name": "Tons of Rock 2026", "source": "scraped" }
+  },
+  "festivalIdByShow": { "f1": "tor2026" }
+}

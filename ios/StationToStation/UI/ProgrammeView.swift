@@ -22,7 +22,7 @@ private let ink = Color(red: 0xED / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
 private let muted = Color(red: 0x8B / 255, green: 0x82 / 255, blue: 0x99 / 255)
 private let faint = Color(red: 0x5A / 255, green: 0x53 / 255, blue: 0x68 / 255)
 private let amber = Color(red: 0xE7 / 255, green: 0xB2 / 255, blue: 0x4C / 255)
-private let slate = Color(red: 0x6D / 255, green: 0x7E / 255, blue: 0x9B / 255)
+private let slate = Color(red: 0x6F / 255, green: 0x80 / 255, blue: 0x9D / 255)
 private let leaving = Color(red: 0xC2 / 255, green: 0x6B / 255, blue: 0x6B / 255)
 private let chipEdge = Color(red: 0x2E / 255, green: 0x27 / 255, blue: 0x40 / 255)
 
@@ -130,6 +130,7 @@ struct ProgrammeView: View {
                 Button { showPicker = true } label: {
                     Image(systemName: "magnifyingglass").foregroundStyle(ink)
                 }
+                .accessibilityLabel("Choose a festival")
             }
         }
         .toolbarBackground(ground, for: .navigationBar)
@@ -174,9 +175,11 @@ struct ProgrammeView: View {
                     .background(loading ? faint : amber)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .onTapGesture { if !loading { showPicker = true } }
+                    .accessibilityAddTraits(.isButton)
             }
             if let error {
                 Text(error).font(.system(size: 13)).foregroundStyle(slate)
+                    .spokenOnAppear(error)
             }
             if blocked {
                 blockedActions
@@ -276,6 +279,9 @@ struct ProgrammeView: View {
                                 .stroke(selected ? amber : chipEdge, lineWidth: 1)
                         )
                         .onTapGesture { day = d }
+                        // Which day is showing is a fill colour alone; the twin of
+                        // Android's selected Tab (#164).
+                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 }
             }
         }
@@ -323,6 +329,12 @@ struct ProgrammeView: View {
         .background(raised)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
+        // One stop per act, with the state its icon and colour carry said in words —
+        // Android's `stateDescription` "going"/"not going", plus what committing would
+        // change, which the icon also shows (#164).
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(actState(picked: isPicked, applied: isApplied))
+        .accessibilityAddTraits(isPicked ? [.isButton, .isSelected] : .isButton)
         .onTapGesture {
             if isPicked {
                 picked.remove(key)
@@ -334,6 +346,15 @@ struct ProgrammeView: View {
                 }
                 picked.insert(key)
             }
+        }
+    }
+
+    private func actState(picked: Bool, applied: Bool) -> String {
+        switch (picked, applied) {
+        case (true, true): return "going"
+        case (true, false): return "going, not committed yet"
+        case (false, true): return "not going, committing takes it off"
+        case (false, false): return "not going"
         }
     }
 
@@ -359,7 +380,7 @@ struct ProgrammeView: View {
                 }
                 Spacer()
                 Button("Commit") {
-                    model.commitProgramme(programme, diff: diff, picked: picked, now: now)
+                    model.planning.commitProgramme(programme, diff: diff, picked: picked, now: now)
                     picked = []
                 }
                 .font(.system(size: 14, weight: .semibold))

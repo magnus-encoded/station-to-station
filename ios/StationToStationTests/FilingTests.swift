@@ -39,8 +39,6 @@ final class FilingTests: XCTestCase {
         XCTAssertNil(g.venue?.city?.name)
     }
 
-    // --- The paste -------------------------------------------------------------
-
     func testThePasteIsBareTitlesOnePerLineInTheOrderTheyWerePlayed() {
         XCTAssertEqual("Second\nFirst\nSecond",
                        setlistPaste(StoredLog(songs: ["Second", "First", "Second"])))
@@ -99,8 +97,6 @@ final class FilingTests: XCTestCase {
         XCTAssertEqual("2 songs, in order \u{00B7} 1 unnamed", songs?.shown)
         XCTAssertEqual("A\n@Unknown[]", songs?.value)
     }
-
-    // --- Where the Historian is sent -------------------------------------------
 
     func testANightSetlistFmAlreadyHasGoesToItsOwnPageNeverABuiltEditUrl() {
         let known = FmSetlist(id: "63a80d2f", url: "https://www.setlist.fm/setlist/x-63a80d2f.html")

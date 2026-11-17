@@ -76,8 +76,6 @@ class MediaBandsTest {
         assertEquals(ids(bandsOf(before).shared), ids(bandsOf(after).shared))
     }
 
-    // ---- contributors ------------------------------------------------------
-
     @Test
     fun `an empty night has no contributors`() {
         assertEquals(0, bandsOf(emptyList()).contributors)
@@ -184,8 +182,6 @@ class MediaBandsTest {
         assertEquals(ReleaseHint.NONE, hintForMoving(night, "t", Band.VAULT))
     }
 
-    // ---- moving ------------------------------------------------------------
-
     @Test
     fun `moving between bands flips the personal bit`() {
         val night = listOf(mine("a"))
@@ -226,8 +222,6 @@ class MediaBandsTest {
         val night = listOf(mine("a"), mine("b"))
         assertEquals(listOf("b", "a"), ids(bandsOf(moveMedia(night, "b", Band.SHARED, -5)).shared))
     }
-
-    // ---- the upgrade -------------------------------------------------------
 
     @Test
     fun `an unshared night sends all of my media to the vault`() {

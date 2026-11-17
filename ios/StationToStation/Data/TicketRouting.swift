@@ -5,6 +5,25 @@ import Foundation
 // extension has neither and must not learn them. The extension extracts and parses;
 // the app is the only thing that decides what a **Ticket** becomes.
 
+/// A **Ticket** waiting on the prompt. Identity of its own because several can queue
+/// up, and `.sheet(item:)` has to be able to tell one blank one from the next. Lives
+/// here rather than beside `Ticket` since it carries setlist.fm hits (#531), which the
+/// Share Extension does not compile.
+struct TicketDraft: Identifiable, Equatable {
+    let id = UUID()
+    let ticket: Ticket
+    /// The night already on the **Line** this may be for, as the prompt says it
+    /// ("Dumdumboys — Rockefeller — 14-09-2026"). A hint and nothing more: the prompt's
+    /// answer is matched again (`confirmTicket`).
+    var possibleMatch: String? = nil
+    /// The inbox deposit this came from, left in the box until the prompt is answered
+    /// (`TicketInbox.remove`). Nil for a draft no deposit stands behind.
+    var depositId: String? = nil
+    /// What the import's setlist.fm lookup offered (#531), nil when none ran. The
+    /// prompt lists its candidates above "None of these" while the search stands.
+    var setlistFm: TicketSetlistFm? = nil
+}
+
 /// What the app should do with a **Ticket** the extension left in the inbox.
 enum TicketRoute: Equatable {
     /// The night is already on the **Line**. Nothing is minted; the **Admissions** are
@@ -43,10 +62,10 @@ enum TicketRoute: Equatable {
 /// plant a phantom plan above today (#408, story 13), and the cost of asking is one
 /// tap. `now` is a parameter so that rule is testable rather than clock-dependent.
 ///
-/// **Nor is one whose barcode the app cannot show** (#441, story 29), on either path. An
-/// **Admission** that did not read back as itself when redrawn (`checkedForRedraw`, and
-/// an unchecked one counts as not) sends the ticket to the prompt, which says which
-/// barcode it is and to bring the PDF. Found at import, not at the door.
+/// **Nor is one whose barcode the app cannot show** (#441, story 29). An **Admission**
+/// that did not read back as itself when redrawn (`checkedForRedraw`, and an unchecked
+/// one counts as not) sends the ticket to the prompt — unless the original file was
+/// kept for it (#568, `Ticket.showsEveryAdmission`), which the Room shows instead.
 ///
 /// **Nor is one for a date a known night is already on** when it matched no act (the
 /// #441 review): `nightThatDay` says why, and that night goes to the prompt as the
@@ -60,11 +79,11 @@ func routeTicket(_ parse: TicketParse,
                  calendar: Calendar = .current) -> TicketRoute {
     guard case .ticket(let ticket) = parse else { return .unreadable }
     if let known = knownNight(ticket, among: knownNights, calendar: calendar) {
-        return ticket.isComplete && ticket.redrawsEveryAdmission
+        return ticket.isComplete && ticket.showsEveryAdmission
             ? .match(known.id) : .confirm(ticket, possibleMatch: known.id)
     }
     let sameDay = nightThatDay(ticket, among: knownNights, calendar: calendar)
-    guard sameDay == nil, ticket.canSkipPrompt, ticket.redrawsEveryAdmission, let date = ticket.date,
+    guard sameDay == nil, ticket.canSkipPrompt, ticket.showsEveryAdmission, let date = ticket.date,
           date >= calendar.startOfDay(for: now)
     else { return .confirm(ticket, possibleMatch: sameDay?.id) }
     return .add(ticket)

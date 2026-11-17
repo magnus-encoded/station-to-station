@@ -2,6 +2,12 @@
 
 **Status:** accepted (2026-08-11, recording a persona in use since the original Collector/Historian split)
 
+## Summary
+
+- **Wants:** the collection itself — complete, ordered, worth keeping — and to compare it.
+- **A story serves them when:** it makes the record more complete, better ordered or comparable, or lets attendance count honestly.
+- **Never:** vanity signals shaped like follower counts.
+
 ## Context
 
 The first persona named, and the one whose motive sits closest to the app's surface: the collection

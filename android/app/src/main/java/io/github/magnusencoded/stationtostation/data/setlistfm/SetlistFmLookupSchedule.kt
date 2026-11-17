@@ -109,7 +109,6 @@ fun setlistFmLookupDue(
 
 /** What a pull to refresh on a local **Gig** does. */
 enum class ManualLookup {
-    /** Send the lookup. */
     LOOK_UP_NOW,
 
     /** Send nothing and show [LOOKUP_FRICTION_MESSAGE]: the Gig stays in the automatic checks. */

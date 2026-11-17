@@ -125,7 +125,7 @@ suspend fun runHandoverSource(
     linkKey: ByteArray,
     allow: Set<String>,
     manifest: HandoverManifest,
-    /** The accounts step, whole — see `AppViewModel.sendHandoverAccounts`. Always called;
+    /** The accounts step, whole — see `HandoverController.sendHandoverAccounts`. Always called;
      * what the tick list decides is whether the payload it sends carries a credential or
      * only identities ([AccountsMove] then reports what the far end did with it). */
     accounts: suspend (Socket) -> AccountsMove,
@@ -198,7 +198,7 @@ suspend fun runHandoverSource(
 suspend fun runHandoverReceiver(
     socket: Socket,
     linkKey: ByteArray,
-    /** See `AppViewModel.receiveHandoverAccounts`: stores durably, *then* acks, and hands
+    /** See `HandoverController.receiveHandoverAccounts`: stores durably, *then* acks, and hands
      * back whatever arrived — null only on a connection dropped before any accounts frame,
      * which desyncs the frames that follow and so never reaches the receipt below. */
     accounts: suspend (Socket) -> AccountsPayload?,

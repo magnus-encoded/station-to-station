@@ -32,8 +32,8 @@ class SeenWithTest {
         val bo = pair()
         val adaGig = pair()
         val boGig = pair()
-        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
-        state.receive(checkIn(boGig, bo, "bo-scope", at = 1200), key(boGig), 1300)
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100, localGigIds = setOf("gig"))
+        state.receive(checkIn(boGig, bo, "bo-scope", at = 1200), key(boGig), 1300, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(ada), key(bo)), mapOf(key(ada) to "Ada", key(bo) to "Bo"))
         // Two Facts admitted and nothing met: only a completed Pass writes a device down, and
         // an advertisement — which reaches nothing in here at all — certainly does not.
@@ -67,8 +67,8 @@ class SeenWithTest {
         val witness = GossipEnvelope(gigId = "gig", scope = "witness-scope", author = key(adaGig),
             createdAt = 2100, expiresAt = 100000, kind = "witness", text = carried.record())
             .signed { bytes -> sign(adaGig, bytes) }!!
-        assertTrue(state.receive(witness, key(adaGig), 2200))
-        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
+        assertTrue(state.receive(witness, key(adaGig), 2200, localGigIds = setOf("gig")))
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(ada), key(cleo)),
             mapOf(key(ada) to "Ada", key(cleo) to "Cleo"))
         state.rememberPass(key(adaGig), emptyList(), "gig", 3000)
@@ -111,8 +111,8 @@ class SeenWithTest {
         val blockedGig = pair()
         val awayCard = pair()
         val awayGig = pair()
-        state.receive(checkIn(blockedGig, blockedCard, "blocked-scope", at = 1000), key(blockedGig), 1100)
-        state.receive(checkIn(awayGig, awayCard, "away-scope", at = 1200), "some-relay", 1300)
+        state.receive(checkIn(blockedGig, blockedCard, "blocked-scope", at = 1000), key(blockedGig), 1100, localGigIds = setOf("gig"))
+        state.receive(checkIn(awayGig, awayCard, "away-scope", at = 1200), "some-relay", 1300, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(blockedCard), key(awayCard)),
             mapOf(key(blockedCard) to "Blocked", key(awayCard) to "Away"))
         state.blocked.add(key(blockedCard))
@@ -134,7 +134,7 @@ class SeenWithTest {
         val state = PublicGossipState()
         val ada = pair()
         val adaGig = pair()
-        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(ada)), mapOf(key(ada) to "Ada"))
         state.rememberPass(key(adaGig), emptyList(), "gig", 2000)
         state.rememberPass("stranger", emptyList(), "gig", 3000)
@@ -168,7 +168,7 @@ class SeenWithTest {
         val state = PublicGossipState()
         val ada = pair()
         val adaGig = pair()
-        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(ada)), mapOf(key(ada) to "Ada"))
         state.rememberPass(key(adaGig), emptyList(), "gig", 2000)
         state.recognizeContacts(emptySet(), emptyMap())
@@ -190,7 +190,7 @@ class SeenWithTest {
         val state = PublicGossipState()
         val ada = pair()
         val adaGig = pair()
-        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100)
+        state.receive(checkIn(adaGig, ada, "ada-scope", at = 1000), key(adaGig), 1100, localGigIds = setOf("gig"))
         state.recognizeContacts(setOf(key(ada)), mapOf(key(ada) to "Ada"))
         state.rememberPass(key(adaGig), emptyList(), "gig", 2000)
         state.rememberPass("adas-nightly-relay-key", emptyList(), "gig", 3000)

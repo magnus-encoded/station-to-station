@@ -1,0 +1,36 @@
+{
+  "about": "Three hits in other rooms, none sure. The one already rejected is dropped before matching, so the chip asks about the other two, and the rejection is kept.",
+  "outcome": "ask",
+  "ask": [
+    "d1000001",
+    "d1000003"
+  ],
+  "after": {
+    "lastLookupAt": 1804881600000,
+    "rejectedIds": [
+      "d1000002"
+    ],
+    "pendingHitIds": [
+      "d1000001",
+      "d1000003"
+    ],
+    "pendingHits": [
+      {
+        "id": "d1000001",
+        "artist": "Ferrous Owls",
+        "venue": "Driftshallen",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      },
+      {
+        "id": "d1000003",
+        "artist": "Ferrous Owls",
+        "venue": "Kaikanten",
+        "city": "Tromsø",
+        "date": "12-03-2027",
+        "venueLevel": "weak"
+      }
+    ]
+  }
+}

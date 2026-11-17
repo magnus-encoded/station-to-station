@@ -222,11 +222,13 @@ final class TicketParseTests: XCTestCase {
 
     // MARK: - A known night's date, under another name (the #441 review)
 
-    /// Eventim's `Dumdumboys – XL [romertallførti]`: both readings agree on it, the
-    /// Code 128s read back, and the night was already planned by hand as `Dumdumboys`.
-    /// No artist match, but a night that day: asked about, with that night as the hint.
+    /// An artist line that names more than the act, both readings agreeing on it, and
+    /// the night already planned by hand as `Dumdumboys`. No artist match, but a night
+    /// that day: asked about, with that night as the hint. (Eventim's real line,
+    /// `Dumdumboys – XL [romertallførti]`, is always asked about: see
+    /// `carriesMoreThanAName`. So this case is plain words, to test the hint alone.)
     func testACompleteReadForAKnownNightsDateUnderAnotherNameIsAskedAboutNotMinted() {
-        let eventim = Ticket(admissions: [drawnQr], artist: "Dumdumboys – XL [romertallførti]",
+        let eventim = Ticket(admissions: [drawnQr], artist: "Dumdumboys XL",
                              venue: "Rockefeller", date: day(2026, 9, 14))
         XCTAssertEqual(.add(eventim), routeTicket(.ticket(eventim), knownNights: [],
                                                   now: day(2026, 8, 1), calendar: calendar),
@@ -572,6 +574,48 @@ final class TicketParseTests: XCTestCase {
                                    now: day(2026, 8, 1), calendar: calendar))
     }
 
+    func testACompleteTicketWhoseOriginalIsKeptGoesStraightOntoThePlan() {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("000000000000000000000001".utf8),
+                                        symbology: "code128", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertTrue(kept.showsEveryAdmission)
+        XCTAssertEqual(.add(kept), routeTicket(.ticket(kept), knownNights: [],
+                                               now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    func testAMatchWhoseOriginalIsKeptAttachesWithoutAsking() {
+        var eventim = complete
+        eventim.admissions = [drawnQr, Admission(payload: Data("CODE".utf8), symbology: "datamatrix",
+                                                 redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertEqual([nil, "kept.pdf"], kept.admissions.map(\.original))
+        XCTAssertEqual(.match("g1"), routeTicket(.ticket(kept),
+                                                 knownNights: [night("g1", "14-09-2026", "Big Thief")],
+                                                 now: day(2026, 8, 1), calendar: calendar))
+    }
+
+    func testAKeptOriginalLeavesAPastNightAsked() {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("CODE".utf8), symbology: "datamatrix", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+
+        XCTAssertEqual(.confirm(kept), routeTicket(.ticket(kept), knownNights: [],
+                                                   now: day(2027, 8, 1), calendar: calendar))
+    }
+
+    func testTheKeptOriginalIsNeverDeposited() throws {
+        var eventim = complete
+        eventim.admissions = [Admission(payload: Data("CODE".utf8), symbology: "datamatrix", redrawable: false)]
+        let kept = eventim.keepingOriginal("kept.pdf")
+        XCTAssertEqual("kept.pdf", kept.admissions.first?.original)
+        let json = String(decoding: try JSONEncoder().encode(kept), as: UTF8.self)
+
+        XCTAssertFalse(json.contains("kept.pdf"))
+    }
+
     /// Nothing checked is nothing known: a ticket straight off the parse never skips
     /// the prompt, whichever path it would take.
     func testAnUncheckedAdmissionCountsAsNotRedrawable() {
@@ -653,7 +697,6 @@ final class TicketParseTests: XCTestCase {
         XCTAssertEqual(.confirm(guessed), route)
     }
 
-    /// Both readings agreed on every field: nothing left to ask.
     func testACompleteParseBothReadingsBackedIsAdded() {
         var agreed = complete
         agreed.readingCount = 2
@@ -713,6 +756,35 @@ final class TicketParseTests: XCTestCase {
 
         TicketInbox.remove(first[0].id, in: box)
         XCTAssertTrue(TicketInbox.pending(in: box).isEmpty)
+    }
+
+    /// The shared file crosses beside its deposit (#568) and leaves with it.
+    func testADepositsFileCrossesAndLeavesWithIt() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(shared, original: Data("%PDF-synthetic".utf8), in: box))
+
+        let deposit = try XCTUnwrap(TicketInbox.pending(in: box).first)
+        let file = try XCTUnwrap(TicketInbox.originalURL(deposit, in: box))
+        XCTAssertEqual(Data("%PDF-synthetic".utf8), try Data(contentsOf: file))
+
+        TicketInbox.remove(deposit.id, in: box)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// Kept in the app's own store, found again by name, and forgotten on request (#568).
+    func testAKeptOriginalIsCopiedWholeAndForgotten() throws {
+        let box = try scratchBox()
+        XCTAssertTrue(TicketInbox.deposit(shared, original: Data("%PDF-synthetic".utf8), in: box))
+        let deposit = try XCTUnwrap(TicketInbox.pending(in: box).first)
+        let originals = TicketOriginals(directory: try scratchBox())
+
+        let name = try XCTUnwrap(originals.keep(try XCTUnwrap(TicketInbox.originalURL(deposit, in: box))))
+        TicketInbox.remove(deposit.id, in: box)
+
+        XCTAssertEqual(Data("%PDF-synthetic".utf8), try Data(contentsOf: try XCTUnwrap(originals.file(name))))
+        XCTAssertNil(originals.file("../\(name)"))
+        originals.forget(name)
+        XCTAssertNil(originals.file(name))
     }
 
     /// One bad file must not wedge every later ticket behind it.

@@ -2,6 +2,12 @@
 
 **Status:** accepted (2026-08-06, during the ADR-0002 persona review)
 
+## Summary
+
+- **Wants:** to write about gigs — notes and prose, a personal corpus, published by export.
+- **A story serves them when:** it captures material at the gig, or helps write, enrich or publish it at the desk.
+- **Never:** a feed or promotion, or a phone prompt for work that belongs at the desk.
+
 ## Context
 
 Writes *about* gigs: notes, prose, a personal corpus. The objection to naming it is fair and worth

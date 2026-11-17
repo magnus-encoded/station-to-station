@@ -124,6 +124,17 @@ struct StoredAttendance: Codable, Equatable {
     }
 }
 
+extension StoredAttendance {
+    /// This record with no kept-original names (#568): what a handover from another phone
+    /// arrives as, since the file each names is on that phone. Only this phone's own
+    /// import sets one. Field for field with Android's `withoutOriginals`.
+    func withoutOriginals() -> StoredAttendance {
+        var out = self
+        for i in out.admissions.indices { out.admissions[i].original = nil }
+        return out
+    }
+}
+
 /// One **Admission** as stored (#441): field for field with Android's `StoredAdmission`.
 ///
 /// `payload` is base64 of the decoded payload's bytes — JSON has no binary, and a string
@@ -135,17 +146,24 @@ struct StoredAdmission: Codable, Equatable {
     var symbology: String = ""
     var page: Int = 0
     var corroborated: Bool = false
+    /// The kept ticket file shown at the door in this **Admission**'s place (#568,
+    /// `TicketOriginals`): set only where it did not redraw at import. A name, not a
+    /// path, and local to the phone that imported it — a handover carries the name and
+    /// not the file, and the Room says so as it did before #568.
+    var original: String? = nil
 
-    init(payload: String, symbology: String, page: Int = 0, corroborated: Bool = false) {
+    init(payload: String, symbology: String, page: Int = 0, corroborated: Bool = false,
+         original: String? = nil) {
         self.payload = payload
         self.symbology = symbology
         self.page = page
         self.corroborated = corroborated
+        self.original = original
     }
 
     init(_ admission: Admission) {
         self.init(payload: admission.payload.base64EncodedString(), symbology: admission.symbology,
-                  page: admission.page, corroborated: admission.corroborated)
+                  page: admission.page, corroborated: admission.corroborated, original: admission.original)
     }
 
     init(from decoder: Decoder) throws {
@@ -154,6 +172,7 @@ struct StoredAdmission: Codable, Equatable {
         symbology = (try? c.decodeIfPresent(String.self, forKey: .symbology)) ?? nil ?? ""
         page = (try? c.decodeIfPresent(Int.self, forKey: .page)) ?? nil ?? 0
         corroborated = (try? c.decodeIfPresent(Bool.self, forKey: .corroborated)) ?? nil ?? false
+        original = (try? c.decodeIfPresent(String.self, forKey: .original)) ?? nil
     }
 
     /// The payload's bytes, or nil where what is stored is not base64. A payload that
@@ -179,8 +198,15 @@ private struct LenientAdmission: Decodable {
 func mergedAdmissions(_ kept: [StoredAdmission], _ added: [StoredAdmission]) -> [StoredAdmission] {
     var out = kept
     var seen = Set(kept.map(\.payloadKey))
-    for admission in added where seen.insert(admission.payloadKey).inserted {
-        out.append(admission)
+    for admission in added {
+        if seen.insert(admission.payloadKey).inserted {
+            out.append(admission)
+        } else if let original = admission.original,
+                  let i = out.firstIndex(where: { $0.payloadKey == admission.payloadKey && $0.original == nil }) {
+            // The same ticket again, now with its file kept (#568): one stored before
+            // it, or by a phone that had no file, takes it rather than stay unshowable.
+            out[i].original = original
+        }
     }
     return out
 }
@@ -200,23 +226,32 @@ private extension StoredAdmission {
 ///   again, for this Gig only.
 /// - `pendingHitIds`: the hits a "Possible match on setlist.fm" chip is asking about.
 ///   Non-empty is the chip, and lookups pause until it is answered.
+/// - `pendingHits`: what the chip shows for them, kept so it can be drawn without a
+///   fetch. A snapshot only: `pendingHitIds` is the authority, and a hit listed here
+///   whose id is not there is not asked about.
 struct StoredSetlistFmLookup: Codable, Equatable {
     var lastLookupAt: Int64?
     var rejectedIds: [String] = []
     var pendingHitIds: [String] = []
+    var pendingHits: [StoredSetlistFmHit] = []
 
-    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = []) {
+    init(lastLookupAt: Int64? = nil, rejectedIds: [String] = [], pendingHitIds: [String] = [],
+         pendingHits: [StoredSetlistFmHit] = []) {
         self.lastLookupAt = lastLookupAt
         self.rejectedIds = rejectedIds
         self.pendingHitIds = pendingHitIds
+        self.pendingHits = pendingHits
     }
 
-    // Field by field, like `StoredAttendance`: an absent key costs that field only.
+    // Field by field, like `StoredAttendance`: an absent key costs that field only, and
+    // `pendingHits` element by element, like `admissions`, so one malformed hit costs itself.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lastLookupAt = (try? c.decodeIfPresent(Int64.self, forKey: .lastLookupAt)) ?? nil
         rejectedIds = (try? c.decodeIfPresent([String].self, forKey: .rejectedIds)) ?? nil ?? []
         pendingHitIds = (try? c.decodeIfPresent([String].self, forKey: .pendingHitIds)) ?? nil ?? []
+        pendingHits = ((try? c.decodeIfPresent([LenientSetlistFmHit].self, forKey: .pendingHits)) ?? nil)?
+            .compactMap(\.hit) ?? []
     }
 
     var possibleMatchPending: Bool { !pendingHitIds.isEmpty }
@@ -227,16 +262,88 @@ struct StoredSetlistFmLookup: Codable, Equatable {
         return next
     }
 
-    /// "None of these": every hit the chip offered is remembered as not this night.
+    /// The chip asks about `hits`, in their order. What was rejected stays rejected.
+    func asking(_ hits: [StoredSetlistFmHit]) -> StoredSetlistFmLookup {
+        var next = self
+        next.pendingHitIds = hits.map(\.id)
+        next.pendingHits = hits
+        return next
+    }
+
     func rejectingPending() -> StoredSetlistFmLookup {
         var next = self
         for id in pendingHitIds where !next.rejectedIds.contains(id) { next.rejectedIds.append(id) }
         next.pendingHitIds = []
+        next.pendingHits = []
         return next
     }
 
     /// `hitIds` less the ones already rejected here, in their order.
     func unrejected(_ hitIds: [String]) -> [String] { hitIds.filter { !rejectedIds.contains($0) } }
+}
+
+/// One setlist.fm hit a "Possible match" chip is asking about (#531), as the chip draws
+/// it: `artist — venue, city — date`, and the question `setlistFmQuestion` asks when the
+/// room is in doubt. Field for field with Android's `StoredSetlistFmHit`.
+///
+/// `date` is setlist.fm's `dd-MM-yyyy`. `venueLevel` is the matcher's venue level spelt as
+/// `fixtures/setlistfm-match/` spells it (`strong`, `weak`, `noMatch`), nil where the
+/// ticket named no venue. Decoded field by field, each defaulted.
+struct StoredSetlistFmHit: Codable, Equatable {
+    var id: String = ""
+    var artist: String = ""
+    var venue: String = ""
+    var city: String = ""
+    var date: String = ""
+    var venueLevel: String?
+
+    init(id: String = "", artist: String = "", venue: String = "", city: String = "",
+         date: String = "", venueLevel: String? = nil) {
+        self.id = id
+        self.artist = artist
+        self.venue = venue
+        self.city = city
+        self.date = date
+        self.venueLevel = venueLevel
+    }
+
+    init(_ candidate: SetlistFmCandidate) {
+        let hit = candidate.setlist
+        self.init(id: hit.id, artist: hit.artist?.name ?? "", venue: hit.venue?.name ?? "",
+                  city: hit.venue?.city?.name ?? "", date: hit.eventDate ?? "",
+                  venueLevel: candidate.venue?.storedName)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil ?? ""
+        artist = (try? c.decodeIfPresent(String.self, forKey: .artist)) ?? nil ?? ""
+        venue = (try? c.decodeIfPresent(String.self, forKey: .venue)) ?? nil ?? ""
+        city = (try? c.decodeIfPresent(String.self, forKey: .city)) ?? nil ?? ""
+        date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil ?? ""
+        venueLevel = (try? c.decodeIfPresent(String.self, forKey: .venueLevel)) ?? nil
+    }
+}
+
+/// One element of a stored `pendingHits` list, decoded without failing the list: an
+/// element that is not a hit at all reads as nil and is skipped. `LenientAdmission`'s twin.
+private struct LenientSetlistFmHit: Decodable {
+    let hit: StoredSetlistFmHit?
+
+    init(from decoder: Decoder) throws {
+        hit = try? StoredSetlistFmHit(from: decoder)
+    }
+}
+
+extension MatchLevel {
+    /// The level as the fixtures and the stored JSON spell it. Android's `storedName`.
+    var storedName: String {
+        switch self {
+        case .strong: return "strong"
+        case .weak: return "weak"
+        case .noMatch: return "noMatch"
+        }
+    }
 }
 
 /// One night, as *this app* knows it — the identity everything else hangs off
@@ -695,6 +802,17 @@ struct TimelineCache: Codable {
     var gigLogs: [String: StoredLog] = [:]
     /// Public Gig facts; transport state and durable application facts share one Codable slot.
     var publicGossip: PublicGossipState = PublicGossipState()
+    /// Media a **Contact** sent for a Night of theirs I have not joined, by *their* Night
+    /// id (#405). Held apart from `gigMedia` on purpose: another person's belief that we
+    /// shared a Night must never write onto my record. See `MediaOffer`.
+    var mediaOffers: [String: MediaOffer] = [:]
+    /// Their Night id → my own **Gig** id, for every Night I joined by accepting an offer
+    /// for it (#405). Mine alone: never sent, never synchronised. See `joinedNights`.
+    var nightJoins: [String: String] = [:]
+    /// Their Night id → my own **Gig** ids I said it is *not* (#405): a *maybe* answered
+    /// "not the same". A local dismissal — stop marking this — and not a claim about the
+    /// world, so it is never sent and never synchronised. See `maybeNights`.
+    var nightDismissals: [String: [String]] = [:]
 
     init() {}
 
@@ -726,6 +844,9 @@ struct TimelineCache: Codable {
         gigMedia = map(.gigMedia, [StoredMedia].self)
         gigLogs = map(.gigLogs, StoredLog.self)
         publicGossip = try c.decodeIfPresent(PublicGossipState.self, forKey: .publicGossip) ?? PublicGossipState()
+        mediaOffers = map(.mediaOffers, MediaOffer.self)
+        nightJoins = map(.nightJoins, String.self)
+        nightDismissals = map(.nightDismissals, [String].self)
     }
 
     /// The id this gig is known by *outside* the store: its setlist.fm id where it
@@ -797,17 +918,32 @@ actor TimelineStore {
     }()
 
     /// The cache as last written. Empty (never nil) on first run or an unreadable
-    /// file — a corrupt cache must cost the timeline, not the launch.
+    /// file — a corrupt cache must cost the timeline, not the launch. An unreadable
+    /// file is moved aside to `timelines.corrupt-<epoch ms>.json`, bytes untouched,
+    /// before the empty cache is returned: every write is a transform of this, so
+    /// leaving it in place would let the next save replace every hand-logged **Gig**
+    /// with nothing.
     ///
     /// #107's migration is applied on read rather than as a one-shot upgrade step:
     /// there is no schema version to hang one off, and this way an old cache
     /// restored onto the device later migrates too. It is a no-op once `gigs` is
     /// populated, which the first write after a migration makes permanent.
     func load() -> TimelineCache {
+        guard FileManager.default.fileExists(atPath: file.path) else { return TimelineCache() }
         guard let data = try? Data(contentsOf: file),
               let cache = try? JSONDecoder().decode(TimelineCache.self, from: data)
-        else { return TimelineCache() }
+        else {
+            quarantine()
+            return TimelineCache()
+        }
         return cache.migrated()
+    }
+
+    private func quarantine() {
+        let stem = file.deletingPathExtension().lastPathComponent
+        let millis = Int64(Date().timeIntervalSince1970 * 1000)
+        let aside = file.deletingLastPathComponent().appendingPathComponent("\(stem).corrupt-\(millis).json")
+        try? FileManager.default.moveItem(at: file, to: aside)
     }
 
     /// Merges into what is already stored and writes it back. Merging, not
@@ -823,7 +959,7 @@ actor TimelineStore {
     ) {
         writeMerged { cache in
             var c = cache
-            c.shows.merge(shows.filter { !$0.value.isEmpty }) { _, new in new }
+            c.shows = holdLanes(c.shows, shows)
             // The author beats the scrape, wherever the two meet — see `mergedWith`.
             c.festivals = mergedWith(c.festivals, festivals)
             c.festivalIdByShow.merge(festivalIdByShow) { _, new in new }
@@ -898,6 +1034,29 @@ actor TimelineStore {
             settled = c.gigAttendance[gigId] ?? StoredAttendance()
             edit(&settled)
             c.gigAttendance[gigId] = settled
+            return c
+        }
+        return settled
+    }
+
+    /// Changes one night's setlist.fm lookup state (#531) as it stands *now*, in one actor
+    /// call: `edit` gets the stored state, or an empty one for a night never looked up,
+    /// and what it returns is kept. Android's `editSetlistFmLookup`.
+    ///
+    /// **Never mints a claim.** A night with no attendance record is left alone and this
+    /// returns nil: a lookup is not evidence of going, and a record minted here would put
+    /// a night on the plan nobody planned. Otherwise returns the settled record, for
+    /// `attendanceByGig`, `savePlanned`'s reason.
+    @discardableResult
+    func editSetlistFmLookup(gigId: String,
+                             _ edit: (StoredSetlistFmLookup) -> StoredSetlistFmLookup) -> StoredAttendance? {
+        var settled: StoredAttendance?
+        writeMerged { cache in
+            var c = cache
+            guard let id = c.gigIdOrNil(gigId), var record = c.gigAttendance[id] else { return c }
+            record.setlistFmLookup = edit(record.setlistFmLookup ?? StoredSetlistFmLookup())
+            c.gigAttendance[id] = record
+            settled = record
             return c
         }
         return settled
@@ -984,22 +1143,24 @@ actor TimelineStore {
     /// A night this app minted, gone entirely — the record and everything keyed by it.
     ///
     /// Refused in two cases, and both refusals are the point. A **Gig** that has taken a
-    /// setlist.fm id is not ours to delete: the vendor's record outlives our copy of it.
-    /// A night with **Media** on it is not a mistap — the photographs are irreplaceable
+    /// setlist.fm id is not ours to delete: the vendor's record outlives our copy of it,
+    /// unless `anyId` says this is the deliberate delete of a night kept only here, such as
+    /// one joined from a **Contact**. A night with **Media** on it is not a mistap — the photographs are irreplaceable
     /// and there is no undo for bytes. Returns whether it went, so the caller can say so
     /// rather than silently doing nothing.
     ///
     /// Deletion rather than `removePlanned`, which rightly refuses to erase a check-in —
     /// that refusal is exactly what used to strand an attendance claim for a night
     /// nothing pointed at any more.
-    func deleteGig(_ gigId: String, withMedia: Bool = false) -> Bool {
+    func deleteGig(_ gigId: String, withMedia: Bool = false, anyId: Bool = false, attendedLane: String? = nil) -> Bool {
         var deleted = false
         writeMerged { cache in
             var c = cache
             guard let id = c.gigIdOrNil(gigId), let gig = c.gigs[id] else { return c }
-            guard gig.setlistId == nil else { return c }
+            guard gig.setlistId == nil || anyId else { return c }
             guard withMedia || (c.gigMedia[id] ?? []).isEmpty else { return c }
             deleted = true
+            if let lane = attendedLane { c.shows[lane] = (c.shows[lane] ?? []).filter { $0.id != gigId } }
             c.gigs[id] = nil
             c.gigPlanned[id] = nil
             c.gigAttendance[id] = nil
@@ -1062,6 +1223,87 @@ actor TimelineStore {
             }
             return c
         }
+    }
+
+    /// A Contact reconcile's `contactOffers`, kept until I answer them (#405).
+    func holdMediaOffers(_ arrived: [String: MediaOffer]) {
+        if arrived.isEmpty { return }
+        writeMerged { $0.holdingOffers(arrived) }
+    }
+
+    /// Yes to the offer for their Night `night`, on my Night `key` — a setlist.fm id or a
+    /// gig id, whatever the screens use, minting the **Gig** if nothing hung off it yet.
+    func acceptMediaOffer(_ night: String, key: String) {
+        writeMerged { cache in
+            guard cache.mediaOffers[night] != nil else { return cache }
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.acceptingOffer(night, gigId: gigId)
+        }
+    }
+
+    /// No to the offer for their Night `night`. See `decliningOffer`.
+    func declineMediaOffer(_ night: String) {
+        writeMerged { $0.decliningOffer(night) }
+    }
+
+    /// "Same Night" to a *maybe* (#405): their Night `night` is joined to my Night `key` —
+    /// a setlist.fm id or a gig id, whatever the screens use — minting the **Gig** if
+    /// nothing hung off it yet. Mine alone. See `joiningNight`.
+    func joinNight(_ night: String, key: String) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.joiningNight(night, gigId: gigId)
+        }
+    }
+
+    /// "Not the same" to a *maybe* (#405). Mine alone. See `dismissingMaybe`.
+    func dismissMaybe(_ night: String, key: String) {
+        writeMerged { cache in
+            var c = cache
+            let gigId = c.withGig(key)
+            return c.dismissingMaybe(night, gigId: gigId)
+        }
+    }
+
+    /// Undo of `joinNight` (#580): the *maybe* comes back. Mints nothing — the Gig the
+    /// join made stays, holding nothing, as a Gig minted by any other write does.
+    func unjoinNight(_ night: String, key: String) {
+        writeMerged { cache in
+            guard let gigId = cache.gigIdOrNil(key) else { return cache }
+            return cache.unjoiningNight(night, gigId: gigId)
+        }
+    }
+
+    /// Undo of `dismissMaybe` (#580): the *maybe* comes back.
+    func undismissMaybe(_ night: String, key: String) {
+        writeMerged { cache in
+            guard let gigId = cache.gigIdOrNil(key) else { return cache }
+            return cache.undismissingMaybe(night, gigId: gigId)
+        }
+    }
+
+    /// A **Contact**'s **Nights** from a **Reconcile**, folded into the **Lane** held under
+    /// `laneKey` (#405) — `shows`, the same map a fetched Lane is held in, so a Contact with
+    /// no account draws offline the way a fetched one does. `withdrawn` leaves it again,
+    /// with whatever was offered me for it (`withdrawingOffers`). Returns the Lane as
+    /// written, for the screen to take whole, and that media, so its bytes can be deleted
+    /// once it is out of the cache. The twin of Android's `mergeContactNights`.
+    @discardableResult
+    func mergeContactNights(_ laneKey: String, _ nights: [FmSetlist],
+                            _ withdrawn: [String] = []) -> (lane: [FmSetlist]?, dropped: [StoredMedia]) {
+        if laneKey.nilIfBlank == nil || (nights.isEmpty && withdrawn.isEmpty) { return (nil, []) }
+        var lane: [FmSetlist]?
+        var dropped: [StoredMedia] = []
+        writeMerged { cache in
+            dropped = withdrawn.flatMap { cache.mediaOffers[$0]?.media ?? [] }
+            var c = cache.withdrawingOffers(withdrawn)
+            c.shows[laneKey] = withdrawNights(landNights(c.shows[laneKey], nights), withdrawn)
+            lane = c.shows[laneKey]
+            return c
+        }
+        return (lane, dropped)
     }
 
     /// The union a device handover decided, written under this actor's own lock (#142).
@@ -1274,7 +1516,29 @@ extension TimelineCache {
     /// `attendanceByGig` allowed for a local id there too, but #34 — the only
     /// thing that would ever have minted one — was never built, so no cache in
     /// existence contains one.
-    func migrated() -> TimelineCache { withGigs().withMedia() }
+    func migrated() -> TimelineCache { withGigs().withMedia().withPastTicketsAttended() }
+
+    /// The repair for a **Ticket** shared after its night: before the fix, every ticket
+    /// import wrote `planned`, so a ticket for a night already gone sat above today with
+    /// a hollow marker and nothing would ever make it attended.
+    ///
+    /// A planned **Gig** holding an Admission and created on a day after its own night is
+    /// that record: nobody plans a night that has passed. Needs no flag — once raised, a
+    /// record no longer matches. The Kotlin twin is `withPastTicketsAttended`.
+    func withPastTicketsAttended(calendar: Calendar = .current) -> TimelineCache {
+        var c = self
+        for (gigId, attendance) in gigAttendance {
+            guard attendance.provenance == "planned", !attendance.admissions.isEmpty,
+                  let gig = gigs[gigId], gig.createdAt > 0 else { continue }
+            let date = gig.date.isEmpty ? (gigPlanned[gigId]?.eventDate ?? "") : gig.date
+            guard let night = isoDate(fromFm: date) else { continue }
+            let created = Date(timeIntervalSince1970: TimeInterval(gig.createdAt) / 1000)
+            if night < isoToday(created, calendar: calendar) {
+                c.gigAttendance[gigId] = attendance.withProvenance("attended")
+            }
+        }
+        return c
+    }
 
     private func withGigs() -> TimelineCache {
         guard gigs.isEmpty else { return self }

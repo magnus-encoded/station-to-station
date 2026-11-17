@@ -5,10 +5,10 @@ on:
   # and there is no local Xcode to build against, so a branch that can't reach CI
   # can't be checked at all.
   push:
-    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+    paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   pull_request:
-    branches: [ "main" ]
-    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+    branches: [ "main", "features-parity" ]
+    paths: [ "ios/**", "fixtures/**", ".github/workflows/ios.yml" ]
   # A release published by hand builds the iOS side for it. Not load-bearing:
   # android-release.yml creates its release with GITHUB_TOKEN, and GitHub will
   # not start a workflow from an event a workflow token raised — so a *tagged*
@@ -19,7 +19,30 @@ on:
   workflow_dispatch:
 
 jobs:
+  # One commit on a branch with an open PR fires this workflow twice: once for the
+  # push, once for the pull_request. When both runs build the same tree, the later
+  # one skips its build if the other is still running or already went green. The
+  # PR run builds the merge with main, so a branch behind main still builds twice.
+  pre_job:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        # Pinned by SHA: this is third-party code handed a token. v5.3.2.
+        uses: fkirc/skip-duplicate-actions@b974a9395958c231af965b70070979a577efa578
+        with:
+          concurrent_skipping: same_content_newer
+          skip_after_successful_duplicate: 'true'
+          do_not_skip: '["workflow_dispatch", "release"]'
+
   build:
+    needs: pre_job
+    # Never skipped on main: android-release.yml takes the IPA from the newest
+    # green iOS run on main, and a skipped run is green with no artifact.
+    if: needs.pre_job.outputs.should_skip != 'true' || github.ref == 'refs/heads/main'
     runs-on: macos-latest
     # The attach step writes a release asset. The default token is read-only on
     # repos that have tightened it, and the failure lands after the build is paid for.

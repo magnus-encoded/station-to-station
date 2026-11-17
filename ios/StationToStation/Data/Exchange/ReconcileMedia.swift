@@ -135,6 +135,13 @@ extension PhotoLibrary {
         return dir.appendingPathComponent("\(id).\(kind == StoredMedia.Kind.video ? "mp4" : "jpg")")
     }
 
+    /// Something that arrived on a reconcile, gone: its file and both thumbnail tiers.
+    /// A gallery match has no file of ours, so only its thumbnails go.
+    static func deleteReceivedMedia(_ media: StoredMedia) {
+        try? FileManager.default.removeItem(at: receivedMediaFile(id: media.id, kind: media.kind))
+        deleteThumbnails(media.id)
+    }
+
     /// Both thumbnail tiers for something that arrived through a reconcile rather than
     /// through **Attach**.
     ///
@@ -207,8 +214,9 @@ func hashedDeviceManifest(_ cache: TimelineCache, allow: Set<String>,
     await hashing(deviceManifest(cache, allow: allow, identities: identities), cache)
 }
 
-func hashedContactManifest(_ cache: TimelineCache, me: String) async -> HandoverManifest {
-    await hashing(contactManifest(cache, me: me), cache)
+func hashedContactManifest(_ cache: TimelineCache, me: String,
+                           setlistfm: String = "") async -> HandoverManifest {
+    await hashing(contactManifest(cache, me: me, setlistfm: setlistfm), cache)
 }
 
 private func hashing(_ offered: HandoverManifest, _ cache: TimelineCache) async -> HandoverManifest {

@@ -20,8 +20,8 @@ final class SeenWithTests: XCTestCase {
         var state = PublicGossipState()
         let ada = P256.Signing.PrivateKey(), bo = P256.Signing.PrivateKey()
         let adaGig = P256.Signing.PrivateKey(), boGig = P256.Signing.PrivateKey()
-        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100)
-        state.receive(try checkIn(gig: boGig, card: bo, scope: "bo-scope", at: 1200), from: key(boGig), now: 1300)
+        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100, localGigIds: ["gig", "other"])
+        state.receive(try checkIn(gig: boGig, card: bo, scope: "bo-scope", at: 1200), from: key(boGig), now: 1300, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(ada), key(bo)], names: [key(ada): "Ada", key(bo): "Bo"])
         // Two Facts admitted and nothing met: only a completed Pass writes a device down, and
         // an advertisement — which reaches nothing in here at all — certainly does not.
@@ -51,8 +51,8 @@ final class SeenWithTests: XCTestCase {
         let witness = try XCTUnwrap(GossipEnvelope(gigId: "gig", scope: "witness-scope",
             author: key(adaGig), createdAt: 2100, expiresAt: 100000, kind: "witness",
             text: carried.record()).signed { try? adaGig.signature(for: $0).derRepresentation })
-        XCTAssertTrue(state.receive(witness, from: key(adaGig), now: 2200))
-        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100)
+        XCTAssertTrue(state.receive(witness, from: key(adaGig), now: 2200, localGigIds: ["gig", "other"]))
+        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(ada), key(cleo)], names: [key(ada): "Ada", key(cleo): "Cleo"])
         state.rememberPass(with: key(adaGig), batch: [], activeGigId: "gig", now: 3000)
 
@@ -90,9 +90,9 @@ final class SeenWithTests: XCTestCase {
         let blockedCard = P256.Signing.PrivateKey(), blockedGig = P256.Signing.PrivateKey()
         let awayCard = P256.Signing.PrivateKey(), awayGig = P256.Signing.PrivateKey()
         state.receive(try checkIn(gig: blockedGig, card: blockedCard, scope: "blocked-scope", at: 1000),
-                      from: key(blockedGig), now: 1100)
+                      from: key(blockedGig), now: 1100, localGigIds: ["gig", "other"])
         state.receive(try checkIn(gig: awayGig, card: awayCard, scope: "away-scope", at: 1200),
-                      from: "some-relay", now: 1300)
+                      from: "some-relay", now: 1300, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(blockedCard), key(awayCard)],
                                 names: [key(blockedCard): "Blocked", key(awayCard): "Away"])
         state.blocked.insert(key(blockedCard))
@@ -111,7 +111,7 @@ final class SeenWithTests: XCTestCase {
     func testTheRecordSurvivesRestartAndOutlivesTheNightsGossip() throws {
         var state = PublicGossipState()
         let ada = P256.Signing.PrivateKey(), adaGig = P256.Signing.PrivateKey()
-        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100)
+        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(ada)], names: [key(ada): "Ada"])
         state.rememberPass(with: key(adaGig), batch: [], activeGigId: "gig", now: 2000)
         state.rememberPass(with: "stranger", batch: [], activeGigId: "gig", now: 3000)
@@ -221,7 +221,7 @@ final class SeenWithTests: XCTestCase {
 
         // And the **Fact** itself is filed under the night it names, not the one being stood at.
         XCTAssertTrue(state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000, gigId: "other"),
-                                    from: key(adaGig), now: 1100))
+                                    from: key(adaGig), now: 1100, localGigIds: ["gig", "other"]))
         XCTAssertEqual(state.project(gigIds: ["other"]).count, 1)
         XCTAssertTrue(state.project(gigIds: ["selected"]).isEmpty)
     }
@@ -231,7 +231,7 @@ final class SeenWithTests: XCTestCase {
     func testRemovingAContactLeavesTheirNameOnTheNightAlreadyRecognised() throws {
         var state = PublicGossipState()
         let ada = P256.Signing.PrivateKey(), adaGig = P256.Signing.PrivateKey()
-        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100)
+        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(ada)], names: [key(ada): "Ada"])
         state.rememberPass(with: key(adaGig), batch: [], activeGigId: "gig", now: 2000)
         state.recognizeContacts([], names: [:])
@@ -250,7 +250,7 @@ final class SeenWithTests: XCTestCase {
     func testAContactMetOnBothKeysIsNamedOnceAndStillCountedOnce() throws {
         var state = PublicGossipState()
         let ada = P256.Signing.PrivateKey(), adaGig = P256.Signing.PrivateKey()
-        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100)
+        state.receive(try checkIn(gig: adaGig, card: ada, scope: "ada-scope", at: 1000), from: key(adaGig), now: 1100, localGigIds: ["gig", "other"])
         state.recognizeContacts([key(ada)], names: [key(ada): "Ada"])
         state.rememberPass(with: key(adaGig), batch: [], activeGigId: "gig", now: 2000)
         state.rememberPass(with: "adas-nightly-relay-key", batch: [], activeGigId: "gig", now: 3000)

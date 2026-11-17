@@ -1,5 +1,6 @@
 package io.github.magnusencoded.stationtostation.ui
 
+import io.github.magnusencoded.stationtostation.data.laneKey
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -72,7 +73,7 @@ fun FriendsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Friends") },
+                title = { Text("Friends", modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -101,7 +102,7 @@ fun FriendsScreen(
                     IconButton(
                         onClick = {
                             scope.launch {
-                                val uri = viewModel.myCardUri()
+                                val uri = viewModel.contacts.myCardUri()
                                 if (uri == null) {
                                     snackbarHostState.showSnackbar("Set your setlist.fm username first.")
                                     return@launch
@@ -133,7 +134,7 @@ fun FriendsScreen(
                 )
                 Button(
                     onClick = {
-                        viewModel.addFriendByUsername(addQuery)
+                        viewModel.contacts.addFriendByUsername(addQuery)
                         addQuery = ""
                     },
                     modifier = Modifier.padding(start = 8.dp),
@@ -153,7 +154,7 @@ fun FriendsScreen(
                 )
                 Button(
                     onClick = {
-                        viewModel.discoverFriendFromPlaylist(linkQuery)
+                        viewModel.playlist.discoverFriendFromPlaylist(linkQuery)
                         linkQuery = ""
                     },
                     modifier = Modifier.padding(start = 8.dp),
@@ -169,12 +170,12 @@ fun FriendsScreen(
                 )
             }
             LazyColumn(Modifier.fillMaxSize()) {
-                items(state.friends, key = { it.setlistfm }) { friend ->
+                items(state.friends, key = { it.laneKey }) { friend ->
                     ListItem(
                         headlineContent = { Text(friend.name) },
-                        supportingContent = { Text("@${friend.setlistfm}") },
+                        supportingContent = { Text(if (friend.setlistfm.isBlank()) "Contact" else "@${friend.setlistfm}") },
                         trailingContent = {
-                            IconButton(onClick = { viewModel.removeFriend(friend) }) {
+                            IconButton(onClick = { viewModel.contacts.removeFriend(friend) }) {
                                 Icon(
                                     Icons.Default.Delete,
                                     contentDescription = "Remove ${friend.name}",
@@ -182,7 +183,7 @@ fun FriendsScreen(
                             }
                         },
                         modifier = Modifier.clickable {
-                            viewModel.openSharedConcerts(friend)
+                            viewModel.contacts.openSharedConcerts(friend)
                             onOpenShared()
                         },
                     )

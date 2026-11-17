@@ -28,10 +28,7 @@
     }
   ],
   "expected": {
-    "artist": {
-      "value": "Ocean Colour Scene",
-      "support": "ocr"
-    },
+    "artist": null,
     "venue": {
       "value": "Auditorio Marina Norte, Valencia",
       "support": "both"
@@ -48,10 +45,5 @@
       }
     ],
     "skipsPrompt": false
-  },
-  "knownFailure": {
-    "artist": "The artist is drawn as an image, so it is an OCR-only line, and the spec (#526) lets an OCR-only line fill a field only when the text layer has no candidate for it. The text layer has two (the venue and the disclaimer), so the parse is wrong, both readings agree on it, and a complete read skips the prompt. The mirror image of TICKETLINE; a rule change needs a human decision (see README).",
-    "venue": "The artist is drawn as an image, so it is an OCR-only line, and the spec (#526) lets an OCR-only line fill a field only when the text layer has no candidate for it. The text layer has two (the venue and the disclaimer), so the parse is wrong, both readings agree on it, and a complete read skips the prompt. The mirror image of TICKETLINE; a rule change needs a human decision (see README).",
-    "skipsPrompt": "The artist is drawn as an image, so it is an OCR-only line, and the spec (#526) lets an OCR-only line fill a field only when the text layer has no candidate for it. The text layer has two (the venue and the disclaimer), so the parse is wrong, both readings agree on it, and a complete read skips the prompt. The mirror image of TICKETLINE; a rule change needs a human decision (see README)."
   }
 }

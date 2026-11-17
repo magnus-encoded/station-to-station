@@ -248,4 +248,38 @@ final class PdfTicketExtractorTests: XCTestCase {
                                imageWidth: 110, imageHeight: 200)
         XCTAssertEqual(CGRect(x: 0, y: 0, width: 110, height: 125), crop)
     }
+
+    // MARK: - The page size a shared PDF may ask for (#165)
+
+    /// An A4 ticket is drawn exactly as the extension drew it before the bound: long
+    /// edge 2000, the rest in proportion.
+    func testARealTicketPageIsDrawnAtTheSizeItAlwaysWas() {
+        let size = boundedPageSize(CGSize(width: 595, height: 842), scale: 3, maxEdge: 2000)
+        let before = 2000 / CGFloat(842)
+        XCTAssertEqual(595 * before, size.width, accuracy: 0.01)
+        XCTAssertEqual(842 * before, size.height, accuracy: 0.01)
+    }
+
+    /// The PDF format's largest page used to be drawn at its full 14,400 points a side:
+    /// the old scale was floored at 1.
+    func testAPosterSizedPageIsShrunkToTheLongEdge() {
+        let size = boundedPageSize(CGSize(width: 14_400, height: 14_400), scale: 3, maxEdge: 2000)
+        XCTAssertEqual(2000, size.width, accuracy: 0.01)
+        XCTAssertEqual(2000, size.height, accuracy: 0.01)
+        let huge = boundedPageSize(CGSize(width: 14_400, height: 14_400), scale: 3)
+        XCTAssertLessThanOrEqual(huge.width * huge.height, maxPageArea + 1)
+    }
+
+    /// The door draws at a fixed width, so a page one point wide scaled up to it.
+    func testASliverOfAPageCannotAskForAnEndlessImageAtTheDoor() {
+        let size = boundedPageSize(CGSize(width: 1, height: 14_400), scale: 1200,
+                                   maxEdge: 2400, maxArea: 2 * 1200 * 1200)
+        XCTAssertEqual(2400, size.height, accuracy: 0.01)
+        XCTAssertEqual(1, size.width, accuracy: 0.01)
+    }
+
+    func testAPageWithNoSizeIsStillOnePoint() {
+        XCTAssertEqual(CGSize(width: 1, height: 1), boundedPageSize(.zero, scale: 1))
+        XCTAssertEqual(CGSize(width: 1, height: 1), boundedPageSize(CGSize(width: 1, height: 1), scale: .nan))
+    }
 }

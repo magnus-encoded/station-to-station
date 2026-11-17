@@ -1,0 +1,16 @@
+{
+  "rows": [
+    {
+      "key": "c-g1-0", "date": "2026-06-25", "node": "gig", "title": "Ghost",
+      "ownership": "mine",
+      "hosts": { "Lemmy": "lane1" },
+      "maybe": ["Lemmy"]
+    },
+    {
+      "key": "f-tor2026", "date": "2026-06-25", "node": "festival", "title": "Tons of Rock 2026",
+      "ownership": "theirs",
+      "with": ["Lemmy"], "theirs": 1,
+      "hosts": { "Lemmy": "lane1" }
+    }
+  ]
+}

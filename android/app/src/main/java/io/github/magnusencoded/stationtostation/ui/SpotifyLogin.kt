@@ -10,7 +10,7 @@ import io.github.magnusencoded.stationtostation.AppViewModel
  */
 suspend fun startSpotifyLogin(context: Context, viewModel: AppViewModel): String? {
     return try {
-        val uri = viewModel.buildSpotifyAuthUri()
+        val uri = viewModel.settingsController.buildSpotifyAuthUri()
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
         null
     } catch (e: Exception) {

@@ -2,11 +2,14 @@ package io.github.magnusencoded.stationtostation.data.exchange
 
 import io.github.magnusencoded.stationtostation.data.GalleryItem
 import io.github.magnusencoded.stationtostation.data.HandoverManifest
+import io.github.magnusencoded.stationtostation.data.MediaOffer
 import io.github.magnusencoded.stationtostation.data.StoredMedia
 import io.github.magnusencoded.stationtostation.data.TimelineCache
 import io.github.magnusencoded.stationtostation.data.contactLanding
+import io.github.magnusencoded.stationtostation.data.contactOffers
 import io.github.magnusencoded.stationtostation.data.contactReconcilePlan
 import io.github.magnusencoded.stationtostation.data.isSafeMediaId
+import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -62,11 +65,27 @@ fun runContactSession(
      * them *less* reliable than the bytes. Landed again in the return value — [unionMedia] is
      * keyed by id, so arriving twice is arriving once. */
     landNotes: (Map<String, List<StoredMedia>>) -> Unit = {},
+    /** The **Lane** I hold for the Contact whose key verified, so the Nights they offer
+     * that I already hold are not taken twice (#405). */
+    heldLane: (contactKey: String) -> List<FmSetlist> = { emptyList() },
+    /** Called with the verified Contact's key and the **Nights** of theirs I did not hold,
+     * as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
+     * transfer that never finishes does not cost the Lane. [withdrawn] is the hand-logged
+     * Nights of theirs I hold that they no longer claim. Not called when both are empty. */
+    landNights: (contactKey: String, nights: List<FmSetlist>, withdrawn: List<String>) -> Unit = { _, _, _ -> },
+    /** My own **Spine**: the Nights an offer could be about (#405). See [contactOffers]. */
+    myNights: List<FmSetlist> = emptyList(),
+    /** Called once the bytes are in with what they sent for Nights I have not joined:
+     * **offered, never filed** (#405). Not called when there are none. */
+    landOffers: (Map<String, MediaOffer>) -> Unit = {},
 ): Map<String, List<StoredMedia>>? {
-    mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
+    val contactKey = mutualContactAuth(socket, isServer, ownCert, privateKey, candidates) ?: return null
 
     val theirManifest = exchangeManifests(socket, isServer, myManifest) ?: return null
-    val plan = contactReconcilePlan(mine, theirManifest, verified = true, gallery = gallery)
+    val plan = contactReconcilePlan(
+        mine, theirManifest, verified = true, gallery = gallery, heldLane = heldLane(contactKey),
+    )
+    if (plan.nights.isNotEmpty() || plan.withdrawn.isNotEmpty()) landNights(contactKey, plan.nights, plan.withdrawn)
 
     // Before the request round, not after it: everything a **Note** needs has already
     // arrived, and this is the earliest moment it can be written down.
@@ -89,6 +108,8 @@ fun runContactSession(
         sendRequested(socket, theirRequest, mediaSource)
     }
 
+    val offers = contactOffers(mine, theirManifest, resolved, myNights)
+    if (offers.isNotEmpty()) landOffers(offers)
     return contactLanding(mine, theirManifest, resolved)
 }
 

@@ -24,6 +24,7 @@ final class Settings {
         static let scope = "spotify_scope"
         static let pkceVerifier = "pkce_verifier"
         static let mySetlistFmUser = "my_setlistfm_user"
+        static let myCardName = "my_card_name"
         static let onboarded = "onboarded"
         static let friends = "friends"
     }
@@ -121,6 +122,13 @@ final class Settings {
     var mySetlistFmUser: String? { store.string(forKey: Key.mySetlistFmUser)?.nilIfBlank }
     func saveMySetlistFmUser(_ v: String) {
         store.set(v.trimmingCharacters(in: .whitespaces), forKey: Key.mySetlistFmUser)
+    }
+
+    /// What I am called on a **Card** with no setlist.fm username behind it (#405) — the
+    /// name the other phone's row and **Lane** read. Android's `myCardName`, same key.
+    var myCardName: String? { store.string(forKey: Key.myCardName)?.nilIfBlank }
+    func saveMyCardName(_ v: String) {
+        store.set(v.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.myCardName)
     }
 
     var friends: [Friend] { decodeFriends(store.string(forKey: Key.friends)) }

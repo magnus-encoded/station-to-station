@@ -130,3 +130,90 @@ func spineNights(attended: [FmSetlist], planned: [FmSetlist],
     return (attended + mine)
         .sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
 }
+
+/// Whether a **Contact**'s **Lane** needs a setlist.fm fetch when the strip opens (#405).
+///
+/// `held` is what I already hold for them: nil when nothing is, and an empty list when
+/// setlist.fm answered and they have no **Nights** there. The two are different facts.
+/// Reading them as one was the re-fetch loop: an empty answer was never held, so the
+/// Lane looked missing on every zoom-out and was asked for again, forever, against the
+/// one bundled key every tester shares. Once asked, an empty Lane is an answer.
+///
+/// - no username: false. There is no address to fetch from, and whatever is held is all
+///   there is.
+/// - nothing held: true.
+/// - whole pages: true. A Lane's setlist.fm Nights counting a whole number of pages
+///   may be one cut short — a Lane held from before the whole history was fetched
+///   stopped at my own oldest Gig, always on a page boundary. Anything else is their
+///   whole history. Hand-logged Nights from the Reconcile are not setlist.fm's and
+///   are not counted.
+/// - otherwise: false.
+///
+/// ponytail: a whole history that happens to be whole pages long is fetched again on
+/// every zoom-out. Store their reported total if that ever matters. Term for term with
+/// Android's `laneNeedsFetch`.
+func laneNeedsFetch(_ contact: Friend, held: [FmSetlist]?) -> Bool {
+    if contact.setlistfm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+    guard let held else { return true }
+    let fromSetlistFm = held.filter { !$0.isLocal }.count
+    return fromSetlistFm > 0 && fromSetlistFm % SetlistFmClient.pageSize == 0
+}
+
+/// What I hold after `fetched` Lanes land on top of `held`: each fetched Lane replaces
+/// what was there, and an empty one is held too, so `laneNeedsFetch` reads it as an
+/// answer on the next pass. The one exception is an empty answer over a Lane that had
+/// Nights — that keeps the last good copy rather than trusting a blank page over it.
+///
+/// Shared by the in-memory Lanes and `TimelineStore.save`, so what is drawn and what is
+/// stored are one rule. A failed fetch is not an empty one: callers leave it out of
+/// `fetched` altogether. Term for term with Android's `holdLanes`.
+///
+/// A hand-logged Night of theirs reached me on the **Reconcile** (#405), and setlist.fm has
+/// never heard of it — so its answer, however complete, is not an answer about that Night.
+/// It stays.
+func holdLanes(_ held: [String: [FmSetlist]], _ fetched: [String: [FmSetlist]]) -> [String: [FmSetlist]] {
+    var out = held
+    for (user, shows) in fetched where !shows.isEmpty || (held[user] ?? []).isEmpty {
+        let ids = Set(shows.map(\.id))
+        let onlyReconciled = (held[user] ?? []).filter { $0.isLocal && !ids.contains($0.id) }
+        out[user] = onlyReconciled.isEmpty ? shows : newestFirst(shows + onlyReconciled)
+    }
+    return out
+}
+
+/// Newest first, as every Lane is; a Night with no date sinks to the bottom.
+private func newestFirst(_ nights: [FmSetlist]) -> [FmSetlist] {
+    nights.sorted { ($0.localDate() ?? .distantPast) > ($1.localDate() ?? .distantPast) }
+}
+
+extension TimelineCache {
+    /// My own **Nights**, as a cache holds them: the **Spine** `spineNights` draws, read
+    /// straight from the store. `me` is my setlist.fm username, blank when I have none —
+    /// then the Spine is my evidenced nights alone, which is the whole of it for someone
+    /// who logs by hand. Android's `mySpine`.
+    func mySpine(_ me: String) -> [FmSetlist] {
+        let attended = me.nilIfBlank.flatMap { shows[$0] } ?? []
+        return spineNights(attended: attended, planned: planned(), attendance: attendance())
+    }
+}
+
+/// A **Contact**'s **Lane** with the Nights they took back on a **Reconcile** taken out
+/// (`ContactReconcilePlan.withdrawn`). Hand-logged Nights only, whatever `withdrawn` names:
+/// a setlist.fm Night is only ever revised by setlist.fm. Android's `withdrawNights`.
+func withdrawNights(_ held: [FmSetlist]?, _ withdrawn: [String]) -> [FmSetlist] {
+    let gone = Set(withdrawn)
+    return (held ?? []).filter { !($0.isLocal && gone.contains($0.id)) }
+}
+
+/// A **Contact**'s **Lane** once the **Nights** they offered on a **Reconcile** land on
+/// what I `held` (#405). `received` is the plan's `nights` — already only what I did not
+/// hold — so this adds and never removes: the same Night twice is one Night, and a Lane
+/// setlist.fm filled in is not emptied by a Contact whose own copy of it is shorter.
+/// Newest first, as every Lane is. Android's `landNights`.
+func landNights(_ held: [FmSetlist]?, _ received: [FmSetlist]) -> [FmSetlist] {
+    let had = held ?? []
+    var ids = Set(had.map(\.id))
+    let fresh = received.filter { $0.id.nilIfBlank != nil && ids.insert($0.id).inserted }
+    if fresh.isEmpty { return had }
+    return newestFirst(had + fresh)
+}

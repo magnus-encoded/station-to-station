@@ -3,6 +3,12 @@
 **Status:** ~~accepted (2026-08-11). Considered served; low net-new feature need.~~
 **Amended 2026-08-15: served for five accounts.** See the amendment below.
 
+## Summary
+
+- **Wants:** to re-experience past nights — hear the set again, see the night again — with little effort.
+- **A story serves them when:** it turns a past night into something to play or look at, without setup or admin.
+- **Never:** trading away the playlist path, or making re-living depend on developer-grade setup.
+
 ## Context
 
 Wants to re-experience former glories rather than document or compare. Unusual among the personas in

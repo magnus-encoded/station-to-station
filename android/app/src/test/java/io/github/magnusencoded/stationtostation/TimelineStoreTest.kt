@@ -1,5 +1,7 @@
 package io.github.magnusencoded.stationtostation
 
+import io.github.magnusencoded.stationtostation.data.MediaOffer
+import io.github.magnusencoded.stationtostation.data.StoredAdmission
 import io.github.magnusencoded.stationtostation.data.StoredAttendance
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.StoredLog
@@ -11,6 +13,8 @@ import io.github.magnusencoded.stationtostation.data.isLocal
 import io.github.magnusencoded.stationtostation.data.localGigSetlist
 import io.github.magnusencoded.stationtostation.data.parseFmDate
 import io.github.magnusencoded.stationtostation.data.plannedLane
+import io.github.magnusencoded.stationtostation.data.spineDismissals
+import io.github.magnusencoded.stationtostation.data.spineJoins
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmArtist
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmCity
 import io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist
@@ -62,9 +66,89 @@ class TimelineStoreTest {
     fun `a failed fetch does not wipe the last good lane`() = runBlocking {
         val store = store()
         store.save(shows = mapOf("Ozzy" to listOf(show("a"))))
-        // loadFriendTimelines() puts an empty list in the map when a fetch throws.
         store.save(shows = mapOf("Ozzy" to emptyList()))
         assertEquals(listOf("a"), store.load().shows["Ozzy"]?.map { it.id })
+    }
+
+    /**
+     * #405: an empty lane setlist.fm has answered for is held, not dropped, so the next
+     * launch does not read it as never asked and fetch it again.
+     */
+    @Test
+    fun `an empty lane is held where nothing was`() = runBlocking {
+        val store = store()
+        store.save(shows = mapOf("Ozzy" to emptyList()))
+        assertEquals(emptyList<String>(), store.load().shows["Ozzy"]?.map { it.id })
+    }
+
+    /**
+     * #405: a Contact's Nights off a Reconcile are held in the same `shows` map a fetched
+     * Lane is, under their Lane key — no new stored field — and survive a relaunch.
+     */
+    @Test
+    fun `a contact's reconciled nights are held under their lane and added to`() = runBlocking {
+        val store = store()
+        store.mergeContactNights("key:0123456789abcdef", listOf(show("a")))
+        store.mergeContactNights("key:0123456789abcdef", listOf(show("a"), show("b")))
+        assertEquals(setOf("a", "b"), store.load().shows["key:0123456789abcdef"]?.map { it.id }?.toSet())
+    }
+
+    /** The screen takes the Lane whole from here, so it must be the Lane, not the Nights touched. */
+    @Test
+    fun `a withdrawal returns the whole lane as written`() = runBlocking {
+        val store = store()
+        store.mergeContactNights("dio", listOf(show("a"), show("b"), show("c")))
+
+        val (lane, _) = store.mergeContactNights("dio", emptyList(), withdrawn = listOf("a"))
+
+        assertEquals(setOf("b", "c"), lane?.map { it.id }?.toSet())
+        assertEquals(lane, store.load().shows["dio"])
+    }
+
+    /**
+     * #405: a Contact's offer is held apart from the Night until answered, and accepting it
+     * on a Night nothing hung off yet mints that Night's **Gig** to file it on.
+     */
+    @Test
+    fun `an offer is held until accepted, then filed on my night`() = runBlocking {
+        val store = store()
+        val offer = MediaOffer(date = "25-06-2026", media = listOf(photo("received").copy(from = "k-mia")))
+        store.holdMediaOffers(mapOf("their-night" to offer))
+        assertTrue(store.load().media().isEmpty())
+        assertEquals(listOf("m-received"), store.load().mediaOffers["their-night"]?.media?.map { it.id })
+
+        store.acceptMediaOffer("their-night", "sl-a")
+
+        val loaded = store.load()
+        assertEquals(listOf("m-received"), loaded.media()["sl-a"]?.map { it.id })
+        assertTrue(loaded.mediaOffers.isEmpty())
+        assertEquals(loaded.gigs.values.single { it.setlistId == "sl-a" }.id, loaded.nightJoins["their-night"])
+    }
+
+    @Test
+    fun `a declined offer leaves my nights as they were`() = runBlocking {
+        val store = store()
+        store.holdMediaOffers(mapOf("their-night" to MediaOffer(date = "25-06-2026", media = listOf(photo("received")))))
+        store.declineMediaOffer("their-night")
+
+        val loaded = store.load()
+        assertTrue(loaded.media().isEmpty())
+        assertTrue(loaded.gigs.isEmpty())
+        assertTrue(loaded.nightJoins.isEmpty())
+        assertEquals(listOf("m-received"), loaded.mediaOffers["their-night"]?.declined)
+    }
+
+    /** #405: both answers to a *maybe* are kept, and read back under the Spine's ids. */
+    @Test
+    fun `a maybe answered either way survives a relaunch`() = runBlocking {
+        val store = store()
+        store.joinNight("their-a", "sl-a")
+        store.dismissMaybe("their-b", "sl-b")
+
+        val loaded = store.load()
+        assertEquals(mapOf("their-a" to "sl-a"), loaded.spineJoins())
+        assertEquals(mapOf("their-b" to setOf("sl-b")), loaded.spineDismissals())
+        assertEquals("sl-a", loaded.gigs.getValue(loaded.nightJoins.getValue("their-a")).setlistId)
     }
 
     @Test
@@ -380,8 +464,6 @@ class TimelineStoreTest {
         assertEquals(StoredAttendance.Provenance.ATTENDED, attendance["a"]?.provenance)
     }
 
-    // --- #107: a Gig gets an identity the app owns ---------------------------
-
     @Test
     fun `adopting a setlist id preserves every association on that night`() = runBlocking {
         // The test #107 exists for. A night carrying everything a night can carry
@@ -517,7 +599,6 @@ class TimelineStoreTest {
             older,
             StoredAttendance(provenance = StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L),
         )
-        // The same night, found again by an import that didn't know it was already here.
         store.saveMedia("63de6d5b", listOf(photo("content://photo2")))
         val newer = store.load().gigForSetlist("63de6d5b")!!.id
 
@@ -559,7 +640,6 @@ class TimelineStoreTest {
             listOf("content://photo1", "content://rec.mp4"),
             cached.media()["a1"]?.map { it.ref },
         )
-        // The night's one video takes the stamps that used to belong to the night.
         assertEquals(listOf(0L, 214_000L), cached.media()["a1"]?.last()?.songOffsets)
         assertEquals(42L, cached.attendance()["a1"]?.checkedInAt)
         assertEquals("content://cal/7", cached.calendarEvents()["a1"])
@@ -976,6 +1056,16 @@ class TimelineStoreTest {
         assertEquals(1, store.load().gigs.size)
     }
 
+    @Test
+    fun `the deliberate delete also takes the night off my cached attended list`() = runBlocking {
+        val store = store()
+        val id = store.createLocalGig("06-08-2026", "Silent Majority", "Ringnes")
+        store.adoptSetlistId(id, "abc123")
+        store.mergeContactNights("dizzi90", listOf(show("abc123"), show("other")))
+        assertTrue(store.deleteGig("abc123", anyId = true, attendedLane = "dizzi90"))
+        assertEquals(listOf("other"), store.load().shows["dizzi90"].orEmpty().map { it.id })
+    }
+
     // --- #128: a setlistId names one Gig, and the read never drops one -----------
 
     /**
@@ -1116,8 +1206,6 @@ class TimelineStoreTest {
         assertEquals(gigId, after.gigForSetlist("637062c7")?.id)
     }
 
-    // ---- notes (#50) ---------------------------------------------------------
-
     private fun note(id: String, text: String, personal: Boolean, verdict: String? = null) =
         StoredMedia(
             id = id,
@@ -1223,5 +1311,40 @@ class TimelineStoreTest {
         assertNull(parseFmDate("7 August 2026"))
         assertNull(parseFmDate("2026-08-07")) // ISO, which is not what setlist.fm speaks
         assertEquals("07-08-2026", fmDate(parseFmDate(" 07-08-2026 ")!!))
+    }
+    @Test
+    fun `undo answers survive reload and preserve unrelated pairs and media`() = runBlocking {
+        val file = File.createTempFile("maybe-undo", ".json").also { it.delete() }
+        val store = TimelineStore(file)
+        store.saveMedia("my-fm-night", listOf(photo("keepsake")))
+        store.joinNight("their-night", "my-fm-night")
+        store.joinNight("other-night", "other-fm-night")
+        store.unjoinNight("their-night", "my-fm-night")
+        var held = TimelineStore(file).load()
+        assertFalse(held.nightJoins.containsKey("their-night"))
+        assertTrue(held.nightJoins.containsKey("other-night"))
+        assertEquals(listOf("keepsake"), held.media()["my-fm-night"]?.map { it.ref })
+
+        store.dismissMaybe("their-night", "my-fm-night")
+        store.dismissMaybe("their-night", "other-fm-night")
+        store.undismissMaybe("their-night", "my-fm-night")
+        held = TimelineStore(file).load()
+        assertEquals(listOf(held.gigForSetlist("other-fm-night")?.id), held.nightDismissals["their-night"])
+    }
+
+    @Test
+    fun `a ticket planned after its night has passed loads as attended`() = runBlocking {
+        val store = store()
+        val past = store.createLocalGig("22-10-2024", "Øystein Sunde", "Folketeateret")
+        val future = store.createLocalGig("22-10-2099", "Øystein Sunde", "Folketeateret")
+        for (gigId in listOf(past, future)) {
+            store.savePlanned(localGigSetlist(gigId, "Øystein Sunde", parseFmDate(store.load().gigs.getValue(gigId).date)!!, "Folketeateret", city = ""))
+            store.attachAdmissions(gigId, listOf(StoredAdmission(payload = "cGF5bG9hZA==", symbology = "qr")))
+        }
+
+        val loaded = store.load().attendance()
+        assertEquals(StoredAttendance.Provenance.ATTENDED, loaded[past]?.provenance)
+        assertEquals(1, loaded[past]?.admissions?.size)
+        assertEquals(StoredAttendance.Provenance.PLANNED, loaded[future]?.provenance)
     }
 }

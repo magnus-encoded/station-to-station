@@ -31,17 +31,35 @@ func runContactSession(
     /// is, and holding them hostage to a video transfer that may never finish is the one
     /// thing that would make them *less* reliable than the bytes. Landed again in the
     /// return value — `unionMedia` is keyed by id, so arriving twice is arriving once.
-    landNotes: ([String: [StoredMedia]]) async -> Void = { _ in }
+    landNotes: ([String: [StoredMedia]]) async -> Void = { _ in },
+    /// The **Lane** I hold for the Contact whose key verified, so the Nights they offer
+    /// that I already hold are not taken twice (#405).
+    heldLane: (String) -> [FmSetlist] = { _ in [] },
+    /// Called with the verified Contact's key and the **Nights** of theirs I did not hold,
+    /// as soon as the manifests are swapped — complete as they stand, like a **Note**, so a
+    /// transfer that never finishes does not cost the Lane. The last argument is the
+    /// hand-logged Nights of theirs I hold that they no longer claim. Not called when both
+    /// are empty.
+    landNights: (String, [FmSetlist], [String]) async -> Void = { _, _, _ in },
+    /// My own **Spine**: the Nights an offer could be about (#405). See `contactOffers`.
+    myNights: [FmSetlist] = [],
+    /// Called once the bytes are in with what they sent for Nights I have not joined:
+    /// **offered, never filed** (#405). Not called when there are none.
+    landOffers: ([String: MediaOffer]) async -> Void = { _ in }
 ) async throws -> [String: [StoredMedia]]? {
-    guard try await mutualContactAuth(wire, isServer: isServer,
-                                      peerCertificate: peerCertificate,
-                                      candidates: candidates) != nil
+    guard let contactKey = try await mutualContactAuth(wire, isServer: isServer,
+                                                       peerCertificate: peerCertificate,
+                                                       candidates: candidates)
     else { return nil }
 
     guard let theirManifest = try await exchangeManifests(wire, isServer: isServer, mine: myManifest)
     else { return nil }
 
-    let plan = contactReconcilePlan(mine: mine, offer: theirManifest, verified: true, gallery: gallery)
+    let plan = contactReconcilePlan(mine: mine, offer: theirManifest, verified: true, gallery: gallery,
+                                    heldLane: heldLane(contactKey))
+    if !plan.nights.isEmpty || !plan.withdrawn.isEmpty {
+        await landNights(contactKey, plan.nights, plan.withdrawn)
+    }
 
     // Before the request round, not after it: everything a **Note** needs has already
     // arrived, and this is the earliest moment it can be written down.
@@ -81,6 +99,8 @@ func runContactSession(
         try? await sendRequested(wire, ids: theirRequest, mediaSource: mediaSource)
     }
 
+    let offers = contactOffers(mine: mine, offer: theirManifest, resolved: resolved, myNights: myNights)
+    if !offers.isEmpty { await landOffers(offers) }
     return contactLanding(mine: mine, offer: theirManifest, resolved: resolved)
 }
 

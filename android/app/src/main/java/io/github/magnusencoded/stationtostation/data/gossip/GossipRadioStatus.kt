@@ -85,7 +85,6 @@ object GossipRadioStatus {
 
     fun pushOpened(address: String) = _status.update { it.copy(outbound = GossipPeer(address)) }
 
-    /** The challenge resolved: this is who the connection is with. */
     fun pushNamed(contactKey: String) = _status.update {
         it.copy(outbound = it.outbound?.copy(contactKey = contactKey))
     }

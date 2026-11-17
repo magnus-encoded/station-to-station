@@ -66,8 +66,6 @@ data class LoadedSpine(
 /** One page of an **Attended** list, with the total setlist.fm reports for it. */
 data class AttendedPage(val shows: List<FmSetlist>, val total: Int)
 
-// --- The device half ---
-
 /**
  * Everything the logic layer needs from the device, and nothing more.
  *

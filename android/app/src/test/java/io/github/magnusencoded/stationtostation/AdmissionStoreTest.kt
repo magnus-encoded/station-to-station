@@ -44,8 +44,6 @@ class AdmissionStoreTest {
     )
     private val legacyAdmission = StoredAdmission("U1lOVEhFVElDLUxFR0FDWS1RUg==", "qr", 0, false)
 
-    // --- The shared file ------------------------------------------------------
-
     @Test
     fun `the shared file loads, saves and reloads without losing an Admission`() = runBlocking {
         val file = tempFile(fixture().readText())
@@ -159,12 +157,10 @@ class AdmissionStoreTest {
         assertEquals(StoredAttendance(provenance = StoredAttendance.Provenance.ATTENDED), loaded.gigAttendance["g1"])
     }
 
-    // --- Attaching: appended, one per payload (stories 18, 19) ----------------
-
     @Test
     fun `a second ticket for the night adds its Admissions and the same one twice adds nothing`() = runBlocking {
         val store = TimelineStore(tempFile())
-        val id = store.createLocalGig("14-09-2026", "Paper Cranes", "The Long Room")
+        val id = store.createLocalGig("14-09-2099", "Paper Cranes", "The Long Room")
 
         store.attachAdmissions(id, listOf(admission("SYNTHETIC-1")))
         store.attachAdmissions(id, listOf(admission("SYNTHETIC-2", "code128", page = 1)))
@@ -178,7 +174,7 @@ class AdmissionStoreTest {
     @Test
     fun `attaching Admissions takes nothing off the claim already there`() = runBlocking {
         val store = TimelineStore(tempFile())
-        val id = store.createLocalGig("14-09-2026", "Paper Cranes", "The Long Room")
+        val id = store.createLocalGig("14-09-2099", "Paper Cranes", "The Long Room")
         store.saveAttendance(id, StoredAttendance(StoredAttendance.Provenance.CHECKED_IN, checkedInAt = 42L, venueLat = 59.9))
 
         val settled = store.attachAdmissions(id, listOf(admission("SYNTHETIC-1")))

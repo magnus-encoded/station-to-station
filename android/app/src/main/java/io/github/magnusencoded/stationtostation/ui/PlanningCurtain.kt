@@ -36,7 +36,7 @@ internal enum class PlanningDoor { None, Gig, Programme, Import }
 // Per file, as everywhere else in this package.
 private val LineCol = Color(0xFF2E2740)
 private val Faint = Color(0xFF5A5368)
-private val Slate = Color(0xFF6D7E9B) // the future, a cooler light
+private val Slate = Color(0xFF6F809D) // the future, a cooler light
 
 /**
  * The three commitment points, as a fraction of the curtain's full travel.

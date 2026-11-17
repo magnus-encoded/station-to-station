@@ -101,6 +101,17 @@ data class HandoverManifest(
      * that no combination of ticked media categories can move one as a side effect.
      */
     val identities: Identities = Identities(),
+    /**
+     * My **Nights**, offered to a **Contact** on the **Reconcile** (#405): the whole
+     * **Spine**, hand-logged and imported alike, so a Contact with no setlist.fm account —
+     * or a Contact of one — holds a **Lane** that draws offline. Empty on a device
+     * handover, which moves the whole timeline and has no use for a second copy of it.
+     *
+     * The whole list, deliberately: an attended Night is what overlap is computed from,
+     * and withholding some would break it in a way nobody could diagnose. The sharing
+     * boundary stays on the media, where it has always been.
+     */
+    val nights: List<io.github.magnusencoded.stationtostation.data.setlistfm.FmSetlist> = emptyList(),
 )
 
 /**
@@ -399,7 +410,8 @@ private fun TimelineCache.absorbing(
     )
     if (!facts) return merged
     return merged.copy(
-        gigAttendance = join(theirs.gigAttendance, gigAttendance, ::unionAttendance),
+        // A kept original's name is a file on their phone, never on this one (#568).
+        gigAttendance = join(theirs.gigAttendance.mapValues { it.value.withoutOriginals() }, gigAttendance, ::unionAttendance),
         gigLogs = join(theirs.gigLogs, gigLogs, ::unionLog),
         gigPlaylists = join(theirs.gigPlaylists, gigPlaylists, ::unionPlaylists),
         // One current value per night, and mine is the one I am standing in front of.

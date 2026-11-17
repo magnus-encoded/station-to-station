@@ -66,8 +66,6 @@ final class GigOffersTests: XCTestCase {
 
     private func offers(_ gig: GigAsKnown) -> GigOffers { gigOffers(gig, now: now) }
 
-    // --- The table, row by row ------------------------------------------------
-
     func testANightThreeWeeksOutOffersTheCalendarAndAsksWhetherTheEventMoved() {
         let o = offers(night(inThreeWeeks, planned))
         XCTAssertEqual(.addToCalendar, o.alcove)
@@ -145,7 +143,6 @@ final class GigOffersTests: XCTestCase {
 
     func testNirvana1992AttendedNoLogNoCheckInRecordWithSongs() {
         let o = offers(night("28-06-1992", attended, nil, "old-one", 12))
-        // An imported night is not unfinished. It leads somewhere.
         XCTAssertEqual(.spotify, o.alcove)
         XCTAssertEqual(.checkEdits, o.curtain)
         XCTAssertFalse(o.room.checkIn)
@@ -165,7 +162,6 @@ final class GigOffersTests: XCTestCase {
     }
 
     func testCheckingInBeforeTheListedStartOpensCaptureAnyway() {
-        // Standing there is the strongest evidence the thing has begun.
         let o = offers(night(tomorrow, checkedIn))
         XCTAssertTrue(o.room.capture)
         XCTAssertEqual(.capture, o.phase)
@@ -189,8 +185,6 @@ final class GigOffersTests: XCTestCase {
         let mostlyGaps = StoredLog(songs: ["", "", "Vardhavn", ""], closed: true)
         XCTAssertEqual(.setlistFm, offers(night(threeDaysAgo, checkedIn, mostlyGaps)).alcove)
     }
-
-    // --- The ticket (#414) ----------------------------------------------------
 
     func testANightWithNoTicketHoldsNothingUp() {
         XCTAssertFalse(offers(night(today, planned)).room.showTicket)

@@ -128,11 +128,9 @@ private fun readTextLayer(page: PdfRenderer.Page): String? {
 private const val RENDER_SCALE = 200f / 72f
 
 private fun render(page: PdfRenderer.Page): Bitmap {
-    val bitmap = Bitmap.createBitmap(
-        (page.width * RENDER_SCALE).toInt().coerceAtLeast(1),
-        (page.height * RENDER_SCALE).toInt().coerceAtLeast(1),
-        Bitmap.Config.ARGB_8888,
-    )
+    // Bounded (#165): the page size is the untrusted PDF's own claim.
+    val (width, height) = boundedPageSize(page.width, page.height, RENDER_SCALE)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     // White background: a PDF page has no fill of its own, and PdfRenderer leaves
     // unpainted pixels transparent — which both readers would otherwise see as black.
     bitmap.eraseColor(android.graphics.Color.WHITE)

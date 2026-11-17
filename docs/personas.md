@@ -19,6 +19,11 @@ motives pull against each other.** The tensions live between the ADRs, so they a
 | [The Volunteer](adr/0014-the-volunteer.md) | working the gate, in your photograph | **not a user**, protected |
 | [The Holdout](adr/0015-the-holdout.md) | keeping the exit open | served; pulls the other way |
 
+**Every persona ADR opens with a `## Summary`** of three bullets — **Wants**, **A story serves them
+when**, **Never** — one line each. That block is what gets referenced: by a spec tying its user
+stories to personas, and by the periodic review that checks them. The rest of the ADR is the
+argument; keep the summary in step when the argument changes. A new persona gets the same block.
+
 ## How to apply the set
 
 A scoping heuristic, not a research artefact. One user is usually several of these at once —

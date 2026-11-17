@@ -92,7 +92,6 @@ final class TimelineLogicTests: XCTestCase {
          show("b", "25-06-2026", venue: "Ekebergsletta", artist: "Gojira")]
     }
 
-    /// The identity that evening turns out to have, as the scrape hands it over.
     private func scraped() -> ScrapedFestival {
         ScrapedFestival(
             name: "Tons of Rock 2026",
@@ -160,6 +159,7 @@ final class TimelineLogicTests: XCTestCase {
     // Load, then ask about the evenings nothing has identified, then save the answers.
     // A call-order rule, and the reason this layer is allowed to call plumbing at all.
 
+    @MainActor
     func testAnUnidentifiedEveningIsAskedAboutOnLoad() async {
         let mine = oneEvening()
         let fake = FakePlumbing()
@@ -180,6 +180,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertEqual(["Tons of Rock 2026"], fake.savedFestivals.values.map(\.name))
     }
 
+    @MainActor
     func testAnEveningAlreadyIdentifiedIsNotAskedAboutAgain() async {
         let mine = oneEvening()
         let fake = FakePlumbing()
@@ -203,7 +204,6 @@ final class TimelineLogicTests: XCTestCase {
 
         let first = await logic.resolveFestivals(mine: mine, known: Festivals())
         XCTAssertTrue(first.isEmpty)
-        // The evening, not the act: one page answers for the whole night.
         XCTAssertEqual(Set(["a", "b"]), fake.savedAsked)
 
         fake.calls.removeAll()
@@ -273,6 +273,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertEqual(6, mine.filter { found.of($0.id) != nil }.count)
     }
 
+    @MainActor
     func testASeededFixtureIsTheSpineAndTheStoreIsNeverRead() async {
         let fake = FakePlumbing()
         fake.seeded = LoadedSpine(me: "dizzi90", mine: [show("fixture")])
@@ -288,6 +289,7 @@ final class TimelineLogicTests: XCTestCase {
         XCTAssertFalse(fake.calls.contains("storedSpine"))
     }
 
+    @MainActor
     func testNothingStoredYetLeavesTheScreenAlone() async {
         let fake = FakePlumbing()
 

@@ -79,7 +79,7 @@ android {
         // ours. Losing it is recoverable (Play can reset an upload key); losing
         // the app signing key would not be, which is why we let Play keep it.
         //
-        // Credentials come from a gitignored keystore.properties, or from env
+        // Credentials come from a local, gitignored properties file, or from env
         // vars for CI. Absent on a machine that has neither, the config is not
         // created at all and `assembleRelease` produces an unsigned build rather
         // than failing — a contributor without the key can still compile release.
@@ -235,6 +235,8 @@ dependencies {
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.19.0")
+    // The launch splash, held until the timeline is ready (see MainActivity.onCreate).
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     // @Preview and the renderer behind it. The annotation ships in the main artifact

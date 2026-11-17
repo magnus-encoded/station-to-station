@@ -2,6 +2,12 @@
 
 **Status:** accepted as **not a user** (2026-08-11). Nothing is being built.
 
+## Summary
+
+- **Wants:** an event's or artist's commercial interest. Not a user.
+- **A story serves them when:** it gives an organizer or artist presence, placement or data. Nothing is built for them, so such a story is a flag.
+- **Never:** sponsor money touching the Historian's record.
+
 ## Context
 
 Event organisers' and artists' commercial interest. Not a user of the app, and penciled in early

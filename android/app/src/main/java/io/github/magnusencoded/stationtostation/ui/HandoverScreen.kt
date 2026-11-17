@@ -3,7 +3,6 @@ package io.github.magnusencoded.stationtostation.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,6 +44,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -92,14 +95,14 @@ fun HandoverScreen(viewModel: AppViewModel, onDone: () -> Unit) {
     // but the system back gesture and a pop from anywhere else do not, and a handover left
     // running behind a closed screen is a listening socket and an open connection nobody can
     // see or stop.
-    DisposableEffect(Unit) { onDispose { viewModel.dismissHandover() } }
+    DisposableEffect(Unit) { onDispose { viewModel.handover.dismissHandover() } }
 
     Scaffold(
         containerColor = Ground,
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ground, titleContentColor = Ink),
-                title = { Text("Move to a new phone", fontFamily = Serif, fontSize = 18.sp, color = Ink) },
+                title = { Text("Move to a new phone", fontFamily = Serif, fontSize = 18.sp, color = Ink, modifier = Modifier.asHeading()) },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Faint)
@@ -118,9 +121,9 @@ fun HandoverScreen(viewModel: AppViewModel, onDone: () -> Unit) {
         ) {
             when {
                 handover.receipt != null || handover.error != null -> Outcome(handover, onDone)
-                handover.role == HandoverRole.SOURCE -> Offering(handover, viewModel::cancelHandover)
-                handover.role == HandoverRole.RECEIVER -> Receiving(handover, viewModel::cancelHandover)
-                else -> WhatGoes(onOffer = viewModel::offerHandover)
+                handover.role == HandoverRole.SOURCE -> Offering(handover, viewModel.handover::cancelHandover)
+                handover.role == HandoverRole.RECEIVER -> Receiving(handover, viewModel.handover::cancelHandover)
+                else -> WhatGoes(onOffer = viewModel.handover::offerHandover)
             }
             Spacer(Modifier.height(32.dp))
         }
@@ -183,7 +186,9 @@ private fun WhatGoes(onOffer: (Set<String>) -> Unit) {
                 .clip(RoundedCornerShape(12.dp))
                 .background(Raised)
                 .border(1.dp, LineLit, RoundedCornerShape(12.dp))
-                .clickable {
+                // Toggleable rather than clickable: the Checkbox takes no click of its
+                // own, so this row is what tells TalkBack it is ticked (#164).
+                .toggleable(value = ticked, role = Role.Checkbox) {
                     allow = if (ticked) allow - row.categories else allow + row.categories
                 }
                 .padding(12.dp),
@@ -264,7 +269,21 @@ private fun Progress(handover: HandoverUi, verb: String) {
     }
     CircularProgressIndicator(color = Amber)
     Spacer(Modifier.height(18.dp))
-    Text(phase, color = Ink, fontFamily = Serif, fontSize = 18.sp)
+    Text(
+        phase,
+        color = Ink,
+        fontFamily = Serif,
+        fontSize = 18.sp,
+        // Spoken once per phase, not once per item: "Sending 3 of 200" read aloud two
+        // hundred times would drown the screen. The count stays on the bar below.
+        modifier = Modifier
+            .semantics {
+                if (p.phase == HandoverPhase.TRANSFER && p.itemsTotal > 0) {
+                    contentDescription = "$verb ${p.itemsTotal} ${if (p.itemsTotal == 1) "item" else "items"}"
+                }
+            }
+            .spokenOnChange(),
+    )
     Spacer(Modifier.height(10.dp))
     if (p.bytesTotal > 0) {
         LinearProgressIndicator(
@@ -295,9 +314,10 @@ private fun Outcome(handover: HandoverUi, onDone: () -> Unit) {
         color = Ink,
         fontFamily = Serif,
         fontSize = 22.sp,
+        modifier = Modifier.asHeading().spokenOnChange(),
     )
     Spacer(Modifier.height(14.dp))
-    handover.error?.let { Text(it, color = Muted, fontSize = 13.sp) }
+    handover.error?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.spokenOnChange()) }
     receipt?.let { Receipt(it) }
     Spacer(Modifier.height(24.dp))
     TextButton(onClick = onDone) { Text("Done", color = Amber) }

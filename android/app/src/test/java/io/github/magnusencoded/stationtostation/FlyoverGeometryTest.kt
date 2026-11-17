@@ -188,7 +188,6 @@ class FlyoverGeometryTest {
         assertTrue(wallZ(busy, 12) > wallZ(quiet, 12))
     }
 
-    /** A night nobody wrote about is met at billboard distance. */
     @Test
     fun `a short wall is met from billboard distance`() {
         assertEquals(WallStopMin, wallStop(wallHeight = 200.0, frameHeight = 400.0), 0.001)
@@ -200,11 +199,9 @@ class FlyoverGeometryTest {
         val short = wallStop(wallHeight = 300.0, frameHeight = 400.0)
         val tall = wallStop(wallHeight = 450.0, frameHeight = 400.0)
         assertTrue(tall > short)
-        // And having stepped back, the whole wall is actually in frame.
         assertTrue(450.0 * projectedScale(-tall) <= 400.0 * 0.87)
     }
 
-    /** Stepping back is what makes the text small, so it stops. */
     @Test
     fun `an essay does not walk you off the horizon`() {
         assertEquals(WallStopMax, wallStop(wallHeight = 4_000.0, frameHeight = 400.0), 0.001)
@@ -227,7 +224,6 @@ class FlyoverGeometryTest {
     @Test
     fun `nothing drawn ever reaches the lens`() {
         assertTrue(projectedScale(NearCull).isFinite())
-        // Even asked for something it should never be asked for.
         assertTrue(projectedScale(FocalLength).isFinite())
         assertTrue(projectedScale(FocalLength + 500.0).isFinite())
     }
@@ -282,8 +278,6 @@ class FlyoverGeometryTest {
     fun `a flank with nothing in view gives nothing`() {
         val placed = placeMedia(listOf(mine("m1", 0L)), songCount = 12)
         assertNull("the other flank is empty", focalPick(placed, 0.0, mine = false))
-        // Far past the only photograph there is: it has been culled, so it is not
-        // something a thumb can still reach for.
         assertNull(focalPick(placed, zOf(placed, "m1") + NearCull + 10, mine = true))
     }
 
@@ -340,15 +334,12 @@ class FlyoverGeometryTest {
         assertTrue(TurnEnd - FocalPlane < MinGap)
     }
 
-    /** Fully out of the rank exactly where a tap would take it. The step *is* the
-     *  affordance: nearest the spine means yours. */
     @Test
     fun `the photograph at the plane stands furthest into the aisle`() {
         assertEquals(1.0, flankStep(FocalPlane), 0.001)
         assertEquals(FlankX - SlideIn, flankOffset(FocalPlane), 0.001)
     }
 
-    /** Out at the wall while it is still another photograph's turn, at either end. */
     @Test
     fun `a photograph the walk has not reached stands at the wall`() {
         assertEquals(0.0, flankStep(HoldFrom - SlideSpread), 0.001)
@@ -458,11 +449,6 @@ class FlyoverGeometryTest {
         assertEquals(RestTilt, flankTilt(-FarCull), 0.001)
     }
 
-    /**
-     * **The rank stands square to the walker.** Nothing is skewed until it has been
-     * passed, so the whole approach is a picket of face-on photographs receding, and
-     * the only thing out of line is the one a tap would take.
-     */
     @Test
     fun `nothing in the rank is turned at all`() {
         assertEquals(0.0, RestTilt, 0.001)
@@ -521,8 +507,6 @@ class FlyoverGeometryTest {
         assertEquals("and never faster than that", long, travelGain(300_000.0), 0.001)
         assertEquals("a short night is not slowed down", ordinary, travelGain(500.0), 0.001)
     }
-
-    // --- The floor ---------------------------------------------------------
 
     @Test
     fun `floor lines tighten rather than spreading off the phone`() {

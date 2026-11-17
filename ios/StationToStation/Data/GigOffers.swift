@@ -54,7 +54,6 @@ struct GigAsKnown {
 enum Alcove {
     /// Nothing opposite the door. The **Room** is what you came for.
     case empty
-    /// Put it in the calendar.
     case addToCalendar
     /// Open the entry already made — it holds the location, and does maps better.
     case openCalendar
@@ -166,7 +165,6 @@ func gigOffers(_ gig: GigAsKnown, now: Date) -> GigOffers {
         // Mid-set, or a set still being typed: no exit pointed at you.
         alcove = .empty
     } else if recorded && (closed || gig.log == nil) {
-        // A finished night that is on the record somewhere: the playlist is what is left.
         alcove = .spotify
     } else if closed {
         // A set I said was complete that nobody has posted. Includes a linked record

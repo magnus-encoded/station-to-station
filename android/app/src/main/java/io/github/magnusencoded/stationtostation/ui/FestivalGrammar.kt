@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.magnusencoded.stationtostation.data.Festivals
 import io.github.magnusencoded.stationtostation.data.Friend
+import io.github.magnusencoded.stationtostation.data.laneKey
 import io.github.magnusencoded.stationtostation.data.StoredFestival
 import io.github.magnusencoded.stationtostation.data.billedAs
 import io.github.magnusencoded.stationtostation.data.isLocal
@@ -70,7 +71,7 @@ private val Ink = Color(0xFFEDE9F2)
 private val Muted = Color(0xFF8B8299)
 private val Faint = Color(0xFF5A5368)
 private val LineCol = Color(0xFF2E2740)
-private val Slate = Color(0xFF6D7E9B)
+private val Slate = Color(0xFF6F809D)
 private val Serif = FontFamily.Serif
 
 /**
@@ -260,7 +261,39 @@ data class WovenRow(
      * looked fine and double-counted every gig they both went to.
      */
     val showsHereByFriends: List<FmSetlist> = emptyList(),
+    /**
+     * Their Night id → my Night id, for every Night I said is the same Night as one of
+     * mine (#405): by accepting an offer for it, or by answering a *maybe*. Under the ids
+     * the **Spine** uses. A joined pair counts as **Together** exactly as a shared id does.
+     */
+    val joins: Map<String, String> = emptyMap(),
+    /**
+     * The **Contacts** who were out on this row's date under a Night nothing links to
+     * mine (#405): a *maybe*, never a **Crossing**. See [maybeNights]. Only ever on a
+     * row of mine, and never for someone this row already crosses.
+     */
+    val maybe: List<Friend> = emptyList(),
+    /**
+     * On a row of theirs the weave put directly below one of my Nights (#580): the
+     * *maybes* the merge row above it asks about, one per pair. Empty everywhere else.
+     */
+    val maybeAbove: List<MaybeNight> = emptyList(),
+    /**
+     * The part of [maybe] no merge row can ask (#580), because their Night has no row of
+     * its own to sit below mine — folded into another node, or already under another Night
+     * of mine that date. Said in words on my row, as #405 did everywhere.
+     */
+    val maybeInWords: List<Friend> = emptyList(),
+    /**
+     * The **Contacts** whose Night I joined to one of this row's Nights (#405, #580):
+     * "With Mia" under my node. Only ever on a row of mine.
+     */
+    val joinedWith: List<Friend> = emptyList(),
 ) {
+    /** Whether my [mine] and their [theirs] are one Night: a shared id, #433's match, or a join. */
+    private fun together(mine: FmSetlist, theirs: FmSetlist): Boolean =
+        mine.sameAttendance(theirs) || joins[theirs.id] == mine.id
+
     /**
      * Shows I was at with company: the thing this whole resolution exists to surface.
      * Zero on a node that isn't mine — there, [shows] are already a friend's, so
@@ -270,7 +303,7 @@ data class WovenRow(
     val sharedCount: Int
         get() {
             if (!mine) return 0
-            return shows.count { mine -> showsHereByFriends.any { mine.sameAttendance(it) } }
+            return shows.count { mine -> showsHereByFriends.any { together(mine, it) } }
         }
 
     /**
@@ -286,7 +319,7 @@ data class WovenRow(
     val theirsCount: Int
         get() {
             if (!mine) return showsHereByFriends.size
-            return showsHereByFriends.count { theirs -> shows.none { it.sameAttendance(theirs) } }
+            return showsHereByFriends.count { theirs -> shows.none { together(it, theirs) } }
         }
 
     val key: String get() = when (val n = node) {
@@ -309,6 +342,13 @@ data class WovenRow(
  * mine rather than sitting beside it: one Tons of Rock, marked as shared. Expanding
  * that node ([expanded] holds row keys) lists the individual gigs so the two
  * attendances can be compared inside it.
+ *
+ * [joins] and [apart] are what I have said about a Contact's Night that nothing else
+ * links to mine (#405), under the ids the Spine uses: their Night id → my Night id I
+ * said it is, and their Night id → my Night ids I said it is not. A joined pair folds
+ * and counts as **Together** like a shared id. A *maybe* ([maybeNights]) never folds:
+ * its Night stays on their **Lane**, and my row carries them in [WovenRow.maybe]
+ * until I answer — or, once I have said "not the same", carries nothing at all.
  */
 fun weaveTimelines(
     mine: List<FmSetlist>,
@@ -316,6 +356,8 @@ fun weaveTimelines(
     friends: List<Friend>,
     theirs: Map<String, List<FmSetlist>>,
     expanded: Set<String> = emptySet(),
+    joins: Map<String, String> = emptyMap(),
+    apart: Map<String, Set<String>> = emptyMap(),
 ): List<WovenRow> {
     val myNodes = groupIntoFestivals(mine, festivals)
     // Every node on the spine, mine first so a night I was at always hosts the meeting.
@@ -328,43 +370,81 @@ fun weaveTimelines(
     val showsAt = mutableMapOf<TimelineNode, LinkedHashMap<String, FmSetlist>>()
 
     for (friend in friends) {
-        val shows = theirs[friend.setlistfm].orEmpty()
+        val shows = theirs[friend.laneKey].orEmpty()
         if (shows.isEmpty()) continue
         for (node in groupIntoFestivals(shows, festivals)) {
-            val host = hosts.firstOrNull { it.hosts(node) } ?: node.also { hosts.add(it) }
+            // The same record before the same evening: a Festival of mine sharing this
+            // evening's venue would otherwise take a Gig of theirs that one of my own
+            // Gigs holds under its very id, drawing it Together on the Festival and
+            // mine-only on the Gig.
+            val at = hosts.indices.firstOrNull { i -> hosts[i].holdsSameRecord(node, joins) }
+                ?: hosts.indices.firstOrNull { i ->
+                    hosts[i].hosts(node, festivals, joins, mineHost = i < myNodes.size)
+                }
+            val host = if (at != null) hosts[at] else node.also { hosts.add(it) }
             friendsAt.getOrPut(host) { mutableListOf() }
-                .let { if (it.none { f -> f.setlistfm == friend.setlistfm }) it.add(friend) }
+                .let { if (it.none { f -> f.laneKey == friend.laneKey }) it.add(friend) }
             val here = showsAt.getOrPut(host) { LinkedHashMap() }
             node.shows.forEach { here.putIfAbsent(it.id, it) }
         }
     }
 
-    val rows = hosts.mapIndexed { i, node ->
+    // Who may share each of my Nights, by my Night id. Decided once, over the whole
+    // Spine, so a Night of theirs one of my other Nights already answers is no question.
+    val pairs = maybeNights(mine, friends, theirs, festivals, joins, apart)
+    val pairsAt = pairs.groupBy { it.mine.id }
+    fun maybeOn(shows: List<FmSetlist>): List<Friend> =
+        shows.flatMap { s -> pairsAt[s.id].orEmpty().map { it.friend } }.distinctBy { it.laneKey }
+    fun joinedOn(shows: List<FmSetlist>, others: List<Friend>): List<Friend> {
+        val ids = shows.mapTo(HashSet()) { it.id }
+        return others.filter { f -> theirs[f.laneKey].orEmpty().any { joins[it.id] in ids } }
+    }
+
+    val sorted = hosts.mapIndexed { i, node ->
+        val isMine = i < myNodes.size
+        val others = friendsAt[node].orEmpty()
         WovenRow(
             node,
-            mine = i < myNodes.size,
-            others = friendsAt[node].orEmpty(),
+            mine = isMine,
+            others = others,
             showsHereByFriends = showsAt[node]?.values?.toList().orEmpty(),
+            joins = joins,
+            maybe = if (isMine) maybeOn(node.shows) else emptyList(),
+            joinedWith = if (isMine) joinedOn(node.shows, others) else emptyList(),
         )
     }.sortedByDescending { it.date }
 
-    if (expanded.isEmpty()) return rows
+    val (rows, placed) = maybesBelowMine(sorted, pairsAt)
+    fun inWords(shows: List<FmSetlist>): List<Friend> =
+        shows.flatMap { s -> pairsAt[s.id].orEmpty().filterNot { it in placed }.map { it.friend } }
+            .distinctBy { it.laneKey }
+
+    val woven = rows.map { row -> if (row.mine) row.copy(maybeInWords = inWords(row.shows)) else row }
+    if (expanded.isEmpty()) return woven
     // Open festivals list their gigs underneath, each tagged with who was at that one.
-    return rows.flatMap { row ->
+    return woven.flatMap { row ->
         val node = row.node
         if (node !is TimelineNode.Several || row.key !in expanded) return@flatMap listOf(row)
         // Whose a gig is comes from my own timeline, never from the node holding it —
         // reading it off node.shows made every gig inside a friend's festival look mine.
         val myIds = mine.map { it.id }.toSet()
-        val inner = node.runningOrder(row.showsHereByFriends)
+        // A Night of theirs I joined to one of mine is listed once, as mine — not again
+        // as a row of theirs beside it.
+        val also = row.showsHereByFriends.filterNot { joins[it.id] in myIds }
+        val inner = node.runningOrder(also)
             .map { show ->
-                val alsoHere =
-                    row.others.filter { f -> theirs[f.setlistfm].orEmpty().any { it.id == show.id } }
+                val alsoHere = row.others.filter { f ->
+                    theirs[f.laneKey].orEmpty().any { it.id == show.id || joins[it.id] == show.id }
+                }
+                val isMine = show.id in myIds
                 WovenRow(
                     node = TimelineNode.Concert(show),
-                    mine = show.id in myIds,
+                    mine = isMine,
                     others = alsoHere,
                     depth = 1,
+                    maybe = if (isMine) maybeOn(listOf(show)) else emptyList(),
+                    maybeInWords = if (isMine) inWords(listOf(show)) else emptyList(),
+                    joinedWith = if (isMine) joinedOn(listOf(show), alsoHere) else emptyList(),
                     // Carried, not defaulted: [WovenRow.sharedCount] is an intersection
                     // with this list, so leaving it empty made it structurally zero at
                     // depth 1 and no member gig could ever draw a **Crossing**. The
@@ -384,6 +464,61 @@ fun weaveTimelines(
 }
 
 /**
+ * **A maybe pair is always neighbours** (#580). Rows arrive newest first; this moves
+ * each row of theirs that holds a *maybe* against one of my Nights to directly below
+ * that Night, so the merge row between the two has both of them to point at.
+ *
+ * Several maybes on one Night of mine stack below it, in the order [maybeNights] names
+ * them (Lane order): mine → Mia's → Tom's, each with its merge row above it. A row of
+ * theirs goes below the first Night of mine that asks about it and nowhere else; a
+ * pair whose Night has no row of theirs — folded onto a node, or already placed under
+ * another Night of mine — is not placed, and is said in words instead.
+ *
+ * Only rows move, never what is on them, and nothing moves when there is no maybe —
+ * which is every Resolution but the zoomed-out one, where the other Lanes are drawn.
+ * Returns the rows, with [WovenRow.maybeAbove] set, and the pairs that were placed.
+ */
+private fun maybesBelowMine(
+    rows: List<WovenRow>,
+    pairsAt: Map<String, List<MaybeNight>>,
+): Pair<List<WovenRow>, Set<MaybeNight>> {
+    if (pairsAt.isEmpty()) return rows to emptySet()
+    val ownerOf = HashMap<Int, Int>()
+    val below = HashMap<Int, MutableList<Int>>()
+    val above = HashMap<Int, MutableList<MaybeNight>>()
+    rows.forEachIndexed { i, row ->
+        if (!row.mine) return@forEachIndexed
+        for (pair in row.shows.flatMap { pairsAt[it.id].orEmpty() }) {
+            val j = rows.indices.firstOrNull { j ->
+                !rows[j].mine && rows[j].date == row.date && (rows[j].shows + rows[j].showsHereByFriends).any { it.id == pair.theirs.id }
+            } ?: continue
+            val owner = ownerOf.getOrPut(j) { i.also { below.getOrPut(i) { mutableListOf() }.add(j) } }
+            if (owner != i) continue
+            above.getOrPut(j) { mutableListOf() }.add(pair)
+        }
+    }
+    if (above.isEmpty()) return rows to emptySet()
+    val out = ArrayList<WovenRow>(rows.size)
+    rows.forEachIndexed { i, row ->
+        if (i in ownerOf) return@forEachIndexed
+        out += row
+        below[i]?.forEach { j -> out += rows[j].copy(maybeAbove = above[j].orEmpty()) }
+    }
+    return out to above.values.flatten().toSet()
+}
+
+/**
+ * Whether this and [other] hold the same record: one identity, or one Gig under one id (or
+ * a Night I joined to it). The first half of [hosts], asked on its own so the weave can
+ * prefer it over a mere shared evening.
+ */
+private fun TimelineNode.holdsSameRecord(other: TimelineNode, joins: Map<String, String>): Boolean =
+    sameIdentity(other) ||
+        shows.any { a ->
+            other.shows.any { b -> a.id == b.id || joins[b.id] == a.id || joins[a.id] == b.id }
+        }
+
+/**
  * Whether [other]'s node belongs on this one rather than beside it — the same three
  * facts the grouping seam uses, read across two **Lines** instead of down one, so a
  * **Crossing** is decided by exactly what makes a **Node**:
@@ -395,11 +530,203 @@ fun weaveTimelines(
  *
  * Anything looser — same venue, different nights, an identity nobody supplied — would
  * mark unshared nights as shared, which is the four-day window #166 removed.
+ *
+ * Two more, from #405. A Night I **joined** by hand ([joins]) folds like a shared id.
+ * And on one of my own nodes ([mineHost]), the same evening in the same room is not
+ * enough when every pair of Nights across the two is only a *maybe*
+ * ([couldBeSameNight]): two hand-logged Nights share no id, and folding them would be
+ * the app answering the question it is supposed to ask.
  */
-private fun TimelineNode.hosts(other: TimelineNode): Boolean =
-    sameIdentity(other) ||
-        shows.any { a -> other.shows.any { b -> a.id == b.id } } ||
-        sameEvening(other)
+private fun TimelineNode.hosts(
+    other: TimelineNode,
+    festivals: Festivals = Festivals(),
+    joins: Map<String, String> = emptyMap(),
+    mineHost: Boolean = false,
+): Boolean =
+    holdsSameRecord(other, joins) ||
+        (sameEvening(other) &&
+            (!mineHost || shows.any { a -> other.shows.any { b -> !couldBeSameNight(a, b, festivals) } }))
+
+/**
+ * A Night of a **Contact**'s that may be the same Night as one of mine, and nothing
+ * says either way (#405): the *maybe*. A question on my row, never a **Crossing**.
+ */
+data class MaybeNight(val friend: Friend, val mine: FmSetlist, val theirs: FmSetlist)
+
+/**
+ * One line of the *maybe*'s comparison (#580): what [label] says on my Night ([yours])
+ * and on theirs ([theirs]), and whether the two disagree. "From" never [differs]: at
+ * least one side of every maybe is typed by hand, so where each came from is the reason
+ * for the question, not a disagreement about the night.
+ */
+data class MaybeField(val label: String, val yours: String, val theirs: String, val differs: Boolean)
+
+/** Where a Night's record came from, in the comparison's words. */
+private fun FmSetlist.fromWords(): String = if (isLocal()) "typed by hand" else "setlist.fm"
+
+private fun String?.orDash(): String = this?.trim()?.takeIf { it.isNotEmpty() } ?: "—"
+
+/** Two values the same when a person would read them as the same: case and spacing aside. */
+private fun sameWords(a: String, b: String): Boolean =
+    a.trim().lowercase(Locale.ROOT) == b.trim().lowercase(Locale.ROOT)
+
+/**
+ * The *maybe* side by side (#580): Artist, Date, Venue, City, From — mine on the left,
+ * theirs on the right — so "were you both there" is answered by reading, never by
+ * choosing field by field. Nothing here is kept or dropped; see [sameNightLine].
+ */
+fun compareMaybe(maybe: MaybeNight): List<MaybeField> {
+    val mine = maybe.mine
+    val theirs = maybe.theirs
+    fun field(label: String, a: String, b: String) = MaybeField(label, a, b, differs = !sameWords(a, b))
+    return listOf(
+        field("Artist", mine.artist?.name.orDash(), theirs.artist?.name.orDash()),
+        field("Date", mine.readableDateShort().orDash(), theirs.readableDateShort().orDash()),
+        field("Venue", mine.venue?.name.orDash(), theirs.venue?.name.orDash()),
+        field("City", mine.venue?.city?.name.orDash(), theirs.venue?.city?.name.orDash()),
+        MaybeField("From", mine.fromWords(), theirs.fromWords(), differs = false),
+    )
+}
+
+/**
+ * The one line under the comparison (#580): what "Same night" keeps. Mine, and their
+ * Night joins it (`nightJoins`), with whichever side came from setlist.fm named so the
+ * line matches the case.
+ *
+ * - mine from setlist.fm: "Same night keeps your setlist.fm entry. Mia's joins it."
+ * - both typed by hand: "Same night keeps your entry. Mia's joins it."
+ * - only theirs from setlist.fm: "Mia's is on setlist.fm. After Same night you can take
+ *   it as yours." — "Same night" then asks ([maybeAdoptable]); taking it is an adoption.
+ */
+fun sameNightLine(maybe: MaybeNight): String {
+    val whose = maybeWhose(maybe)
+    return when {
+        !maybe.mine.isLocal() -> "Same night keeps your setlist.fm entry. $whose joins it."
+        maybeAdoptable(maybe) -> "${if (maybe.friend.name.isBlank()) "Theirs" else whose} is on setlist.fm. " +
+            "After Same night you can take it as yours."
+        else -> "Same night keeps your entry. $whose joins it."
+    }
+}
+
+/**
+ * Mine typed by hand, theirs from setlist.fm (#580): "Same night" then offers to take
+ * their setlist.fm entry — an adoption, which merges the two for good. Asked, never
+ * assumed, because the adoption is the one answer that cannot be undone.
+ */
+fun maybeAdoptable(maybe: MaybeNight): Boolean = maybe.mine.isLocal() && !maybe.theirs.isLocal()
+
+/** The adoption question's heading (#580): "Take Mia's setlist.fm entry?" */
+fun maybeAdoptQuestion(maybe: MaybeNight): String = "Take ${maybeTheir(maybe, "their")} setlist.fm entry?"
+
+/** What taking it does, and what keeping yours does instead (#580). */
+fun maybeAdoptLine(maybe: MaybeNight): String =
+    "Your Night becomes ${maybeTheir(maybe, "their")} setlist.fm entry, setlist and all. " +
+        "This can't be undone. Keep mine joins the two Nights, and that can be undone."
+
+/** "Mia's" — or "Theirs" for a Contact with no name. */
+fun maybeWhose(maybe: MaybeNight): String =
+    maybe.friend.name.takeIf { it.isNotBlank() }?.let { "$it's" } ?: "Theirs"
+
+/** "Mia's" mid-sentence, where a Contact with no name reads [fallback]. */
+private fun maybeTheir(maybe: MaybeNight, fallback: String): String =
+    maybe.friend.name.takeIf { it.isNotBlank() }?.let { "$it's" } ?: fallback
+
+/** The merge row's pill (#580): "Same night as Mia's?", then "Compare". */
+fun maybePill(maybe: MaybeNight): String = "Same night as ${maybeTheir(maybe, "theirs")}?"
+
+/** What a screen reader says for the merge row (#580). */
+fun maybeMergeLabel(maybe: MaybeNight): String =
+    "Maybe the same night: yours above, ${maybeTheir(maybe, "theirs")} below. Compare them."
+
+/** One line of the comparison, read aloud: "Venue: yours Blå, Mia's Brenneriveien 9, differs". */
+fun maybeFieldSpoken(maybe: MaybeNight, field: MaybeField): String =
+    "${field.label}: yours ${field.yours}, ${maybeWhose(maybe)} ${field.theirs}" +
+        if (field.differs) ", differs" else ""
+
+/** The snackbar after an answer (#580): "Joined with Mia's night" / "Kept apart from Mia's night". */
+fun maybeAnswered(maybe: MaybeNight, same: Boolean): String =
+    (if (same) "Joined with " else "Kept apart from ") + maybeTheir(maybe, "their") + " night"
+
+/**
+ * **The maybe-shared rule** (#405), decided where the Spine is woven.
+ *
+ * A Contact was out on the same date as one of my Nights, under a different id, and
+ * neither record claims the other. Pair by pair:
+ *
+ * - **the same id** is a **Crossing**, as it always was — never a maybe;
+ * - **a different date** is neither;
+ * - **two setlist.fm ids** are two catalogued records, which is a fact rather than a
+ *   question — a shared bill folds by the **Section** rule and two rooms are two Nights;
+ * - **#433's match** (one side hand-logged, same room, same date) is already the same
+ *   attendance — unless one side is a **Festival** day and the other is not, which is a
+ *   difference of granularity and is asked, never asserted (story 24);
+ * - a Night of theirs I **joined** ([joins]) to any Night of mine is answered, and so
+ *   is a Night of mine they already cross;
+ * - a pair I said is **not the same** ([apart]: their id → my ids) never comes back.
+ *
+ * No venue, artist or date-window matching: the date is the only thing compared, and a
+ * person answers the rest.
+ */
+fun maybeNights(
+    mine: List<FmSetlist>,
+    friends: List<Friend>,
+    theirs: Map<String, List<FmSetlist>>,
+    festivals: Festivals = Festivals(),
+    joins: Map<String, String> = emptyMap(),
+    apart: Map<String, Set<String>> = emptyMap(),
+): List<MaybeNight> {
+    val myIds = mine.mapTo(HashSet()) { it.id }
+    val mineByDate = mine.filter { it.localDate() != null }.groupBy { it.localDate() }
+    val out = mutableListOf<MaybeNight>()
+    for (friend in friends) {
+        val lane = theirs[friend.laneKey].orEmpty()
+        if (lane.isEmpty()) continue
+        val laneIds = lane.mapTo(HashSet()) { it.id }
+        val laneByDate = lane.groupBy { it.localDate() }
+        for ((date, myThatDay) in mineByDate) {
+            val theirThatDay = laneByDate[date].orEmpty()
+            if (theirThatDay.isEmpty()) continue
+            // A Night of theirs one of mine already answers to is no question.
+            val open = theirThatDay.filter { t ->
+                t.id !in myIds && t.id !in joins && myThatDay.none { m -> sameRecord(m, t, festivals) }
+            }
+            if (open.isEmpty()) continue
+            for (m in myThatDay) {
+                val crossed = m.id in laneIds ||
+                    lane.any { joins[it.id] == m.id } ||
+                    theirThatDay.any { sameRecord(m, it, festivals) }
+                if (crossed) continue
+                for (t in open) {
+                    if (!couldBeSameNight(m, t, festivals)) continue
+                    if (m.id in apart[t.id].orEmpty()) continue
+                    out += MaybeNight(friend, m, t)
+                }
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * The pair-level half of [maybeNights], before anything I said: the same date, not the
+ * same record, and at least one side with no setlist.fm id behind it.
+ */
+private fun couldBeSameNight(a: FmSetlist, b: FmSetlist, festivals: Festivals): Boolean {
+    if (a.id == b.id) return false
+    if (!a.isLocal() && !b.isLocal()) return false
+    val date = a.localDate() ?: return false
+    if (date != b.localDate()) return false
+    return !sameRecord(a, b, festivals)
+}
+
+/**
+ * [sameAttendance], short of granularity (#405, story 24): #433's hand-logged match is
+ * not made between a **Festival** day and a Night that is not one.
+ */
+private fun sameRecord(a: FmSetlist, b: FmSetlist, festivals: Festivals): Boolean {
+    if (a.id == b.id) return true
+    return a.sameAttendance(b) && festivals.of(a.id)?.id == festivals.of(b.id)?.id
+}
 
 private fun TimelineNode.sameIdentity(other: TimelineNode): Boolean =
     this is TimelineNode.Festival && other is TimelineNode.Festival &&
@@ -493,7 +820,6 @@ fun FestivalItem(
     sharedCount: Int = 0,
     theirCount: Int = 0,
     theirColor: Color = Slate,
-    /** Under the contact light (#145): the amber comes off, and the meeting green with it. */
     unlit: Boolean = false,
     rails: @Composable () -> Unit = {},
     /**
@@ -504,6 +830,8 @@ fun FestivalItem(
      * nothing behind it.
      */
     onWalk: (() -> Unit)? = null,
+    /** Who may have shared one of these nights (#405). See [MaybeLine]. */
+    maybeWith: List<String> = emptyList(),
 ) {
     val amber = if (unlit) Color(0xFF7C7788) else Color(0xFFE7B24C)
     // Amber means mine, at every resolution; brightness means most recent or shared.
@@ -600,6 +928,7 @@ fun FestivalItem(
                 color = Faint,
                 fontSize = 12.sp,
             )
+            if (maybeWith.isNotEmpty()) MaybeLine(maybeWith)
         }
     }
 }

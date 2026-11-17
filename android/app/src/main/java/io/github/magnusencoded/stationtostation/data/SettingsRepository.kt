@@ -50,6 +50,7 @@ class SettingsRepository(private val context: Context) {
         val SPOTIFY_SCOPE = stringPreferencesKey("spotify_scope")
         val PKCE_VERIFIER = stringPreferencesKey("pkce_verifier")
         val MY_SETLISTFM_USER = stringPreferencesKey("my_setlistfm_user")
+        val MY_CARD_NAME = stringPreferencesKey("my_card_name")
         val CLASHFINDER_USER = stringPreferencesKey("clashfinder_user")
         val CLASHFINDER_PRIVATE_KEY = stringPreferencesKey("clashfinder_private_key")
         val CLASHFINDER_PUBLIC_KEY = stringPreferencesKey("clashfinder_public_key")
@@ -106,6 +107,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveMySetlistFmUser(value: String) {
         context.dataStore.edit { it[Keys.MY_SETLISTFM_USER] = value.trim() }
+    }
+
+    /**
+     * What I am called on a **Card** with no setlist.fm username behind it (#405) — the
+     * name the other phone's row and **Lane** read. A username names a card by itself;
+     * without one, this is the only name there is.
+     */
+    val myCardName: Flow<String?> =
+        context.dataStore.data.map { it[Keys.MY_CARD_NAME]?.ifBlank { null } }
+
+    suspend fun saveMyCardName(value: String) {
+        context.dataStore.edit { it[Keys.MY_CARD_NAME] = value.trim() }
     }
 
     val friends: Flow<List<Friend>> =

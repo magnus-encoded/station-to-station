@@ -1,0 +1,334 @@
+{
+  "defaults": "sharedKey true, sharedQuotaSpentAt null; per Gig participationUntil null. lookup is the stored setlistFmLookup JSON (epoch millis), null for never looked up.",
+  "cases": [
+    {
+      "name": "due now by night then id; the earliest of the rest wakes the loop; pending, matched and finished Gigs are in neither",
+      "now": "2026-09-20T12:00:00Z",
+      "gigs": [
+        {
+          "id": "g-b",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-c",
+          "date": "05-10-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-a",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-d",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789894800000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-e",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789902000000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-pending",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [
+              "p1000001"
+            ],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-matched",
+          "date": "25-09-2026",
+          "local": false,
+          "lookup": null
+        },
+        {
+          "id": "g-over",
+          "date": "01-08-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1786352400000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        }
+      ],
+      "dueNow": [
+        "g-a",
+        "g-b",
+        "g-c"
+      ],
+      "nextWakeAt": "2026-09-21T09:00:00Z"
+    },
+    {
+      "name": "the shared key spent: nothing is due before the memory lapses",
+      "now": "2026-09-20T12:00:00Z",
+      "sharedQuotaSpentAt": "2026-09-20T11:30:00Z",
+      "gigs": [
+        {
+          "id": "g-b",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-c",
+          "date": "05-10-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-a",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-d",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789894800000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-e",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789902000000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-pending",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [
+              "p1000001"
+            ],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-matched",
+          "date": "25-09-2026",
+          "local": false,
+          "lookup": null
+        },
+        {
+          "id": "g-over",
+          "date": "01-08-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1786352400000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        }
+      ],
+      "dueNow": [],
+      "nextWakeAt": "2026-09-20T12:30:00Z"
+    },
+    {
+      "name": "a key of the person's own is not held back by the shared key's refusal",
+      "now": "2026-09-20T12:00:00Z",
+      "sharedKey": false,
+      "sharedQuotaSpentAt": "2026-09-20T11:30:00Z",
+      "gigs": [
+        {
+          "id": "g-b",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-c",
+          "date": "05-10-2026",
+          "local": true,
+          "lookup": null
+        },
+        {
+          "id": "g-a",
+          "date": "30-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-d",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789894800000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-e",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1789902000000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-pending",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [
+              "p1000001"
+            ],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-matched",
+          "date": "25-09-2026",
+          "local": false,
+          "lookup": null
+        },
+        {
+          "id": "g-over",
+          "date": "01-08-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1786352400000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        }
+      ],
+      "dueNow": [
+        "g-a",
+        "g-b",
+        "g-c"
+      ],
+      "nextWakeAt": "2026-09-21T09:00:00Z"
+    },
+    {
+      "name": "checked in: every 5 minutes wakes the loop sooner than a daily Gig",
+      "now": "2026-09-25T21:00:00Z",
+      "gigs": [
+        {
+          "id": "g-in",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1790369880000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          },
+          "participationUntil": "2026-09-26T06:00:00Z"
+        },
+        {
+          "id": "g-later",
+          "date": "05-10-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1790326800000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        }
+      ],
+      "dueNow": [],
+      "nextWakeAt": "2026-09-25T21:03:00Z"
+    },
+    {
+      "name": "nothing to look for: nothing due and no wake",
+      "now": "2026-09-20T12:00:00Z",
+      "gigs": [
+        {
+          "id": "g-pending",
+          "date": "25-09-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": null,
+            "rejectedIds": [],
+            "pendingHitIds": [
+              "p1000001"
+            ],
+            "pendingHits": []
+          }
+        },
+        {
+          "id": "g-matched",
+          "date": "25-09-2026",
+          "local": false,
+          "lookup": null
+        },
+        {
+          "id": "g-over",
+          "date": "01-08-2026",
+          "local": true,
+          "lookup": {
+            "lastLookupAt": 1786352400000,
+            "rejectedIds": [],
+            "pendingHitIds": [],
+            "pendingHits": []
+          }
+        }
+      ],
+      "dueNow": [],
+      "nextWakeAt": null
+    }
+  ]
+}

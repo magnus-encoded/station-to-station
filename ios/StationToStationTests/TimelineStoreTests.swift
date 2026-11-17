@@ -83,10 +83,85 @@ final class TimelineStoreTests: XCTestCase {
     func testAFailedFetchDoesNotWipeTheLastGoodLane() async {
         let s = store()
         await s.save(shows: ["Ozzy": [show("a")]])
-        // A failed fetch puts an empty list in the map.
+        // A failed fetch never reaches the store now; this is the belt to that brace,
+        // an empty answer over a Lane that had Nights.
         await s.save(shows: ["Ozzy": []])
         let loaded = await s.load()
         XCTAssertEqual(["a"], loaded.shows["Ozzy"]?.map(\.id))
+    }
+
+    /// #405: an empty Lane setlist.fm has answered for is held, not dropped, so the
+    /// next launch does not read it as never asked and fetch it again.
+    func testAnEmptyLaneIsHeldWhereNothingWas() async {
+        let s = store()
+        await s.save(shows: ["Ozzy": []])
+        let loaded = await s.load()
+        XCTAssertEqual([], loaded.shows["Ozzy"]?.map(\.id))
+    }
+
+    /// #405: a Contact's Nights off a Reconcile are held in the same `shows` map a fetched
+    /// Lane is, under their Lane key — no new stored field — and survive a relaunch.
+    func testAContactsReconciledNightsAreHeldUnderTheirLaneAndAddedTo() async {
+        let s = store()
+        await s.mergeContactNights("key:0123456789abcdef", [show("a")])
+        await s.mergeContactNights("key:0123456789abcdef", [show("a"), show("b")])
+        let loaded = await s.load()
+        XCTAssertEqual(["a", "b"], Set(loaded.shows["key:0123456789abcdef"]?.map(\.id) ?? []))
+    }
+
+    /// The screen takes the Lane whole from here, so it must be the Lane, not the Nights touched.
+    func testAWithdrawalReturnsTheWholeLaneAsWritten() async {
+        let s = store()
+        await s.mergeContactNights("dio", [show("a"), show("b"), show("c")])
+
+        let (lane, _) = await s.mergeContactNights("dio", [], ["a"])
+
+        XCTAssertEqual(["b", "c"], Set(lane?.map(\.id) ?? []))
+        let loaded = await s.load()
+        XCTAssertEqual(lane?.map(\.id), loaded.shows["dio"]?.map(\.id))
+    }
+
+    /// #405: a Contact's offer is held apart from the Night until answered, and accepting it
+    /// on a Night nothing hung off yet mints that Night's **Gig** to file it on.
+    func testAnOfferIsHeldUntilAcceptedThenFiledOnMyNight() async {
+        let s = store()
+        let item = StoredMedia(id: "m-received", kind: StoredMedia.Kind.photo, ref: "file:///received", from: "k-mia")
+        await s.holdMediaOffers(["their-night": MediaOffer(date: "25-06-2026", media: [item])])
+        var loaded = await s.load()
+        XCTAssertTrue(loaded.media().isEmpty)
+        XCTAssertEqual(["m-received"], loaded.mediaOffers["their-night"]?.media.map(\.id))
+
+        await s.acceptMediaOffer("their-night", key: "sl-a")
+
+        loaded = await s.load()
+        XCTAssertEqual(["m-received"], loaded.media()["sl-a"]?.map(\.id))
+        XCTAssertTrue(loaded.mediaOffers.isEmpty)
+        XCTAssertEqual(loaded.gigForSetlist("sl-a")?.id, loaded.nightJoins["their-night"])
+    }
+
+    func testADeclinedOfferLeavesMyNightsAsTheyWere() async {
+        let s = store()
+        let item = StoredMedia(id: "m-received", kind: StoredMedia.Kind.photo, ref: "file:///received")
+        await s.holdMediaOffers(["their-night": MediaOffer(date: "25-06-2026", media: [item])])
+        await s.declineMediaOffer("their-night")
+
+        let loaded = await s.load()
+        XCTAssertTrue(loaded.media().isEmpty)
+        XCTAssertTrue(loaded.gigs.isEmpty)
+        XCTAssertTrue(loaded.nightJoins.isEmpty)
+        XCTAssertEqual(["m-received"], loaded.mediaOffers["their-night"]?.declined)
+    }
+
+    /// #405: both answers to a *maybe* are kept, and read back under the Spine's ids.
+    func testAMaybeAnsweredEitherWaySurvivesARelaunch() async {
+        let s = store()
+        await s.joinNight("their-a", key: "sl-a")
+        await s.dismissMaybe("their-b", key: "sl-b")
+
+        let loaded = await s.load()
+        XCTAssertEqual(["their-a": "sl-a"], loaded.spineJoins())
+        XCTAssertEqual(["their-b": Set(["sl-b"])], loaded.spineDismissals())
+        XCTAssertEqual(loaded.gigForSetlist("sl-a")?.id, loaded.nightJoins["their-a"])
     }
 
     /// Asked and answered are different facts: an evening with no festival behind it
@@ -346,7 +421,6 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("Best encore I have stood through.", note?.text)
         XCTAssertEqual("double_up", note?.verdict)
         XCTAssertEqual(true, note?.personal)
-        // And the save that carried all of it still did its own job.
         XCTAssertEqual(["b1"], loaded.shows["dizzi90"]?.map(\.id))
     }
 
@@ -362,11 +436,16 @@ final class TimelineStoreTests: XCTestCase {
             // blind, so it writes the key itself instead of only echoing one it found.
             // Android reads an absent or empty map the same way. `bills` left the list
             // in #391 with `StoredBill`/`StoredAct` themselves: neither twin writes it
-            // any more.
+            // any more. `mediaOffers` and `nightJoins` joined it in #405: a Contact's media
+            // for a Night I have not joined waits apart from `gigMedia`, and accepting it
+            // records the join. Android declares both with defaults, so an absent key is
+            // an empty map there too. `nightDismissals` joined it later in #405: a
+            // *maybe* answered "not the same", kept per pair and never sent; declared
+            // with a default on Android for the same reason.
             ["attendanceByGig", "attendedTotals", "calendarEventByGig",
              "festivalIdByShow", "festivalNames", "festivals", "festivalsAsked",
              "gigAttendance", "gigCalendarEvent", "gigLogs", "gigMedia", "gigPhotos", "gigPlanned",
-             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
+             "gigPlaylists", "gigSongOffsets", "gigs", "hiddenLines", "mediaOffers", "nightDismissals", "nightJoins", "photosBySetlist", "plannedShows", "playlistsMade", "publicGossip",
              "shows", "songOffsetsBySetlist"],
             json?.keys.sorted()
         )
@@ -416,7 +495,6 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual("Ekebergsletta", gig.venue)
         // Everything still resolves, under the id the screens use.
         XCTAssertEqual(["content://photo1", "content://rec.mp4"], cache.media()["a1"]?.map(\.ref))
-        // The night's one video takes the stamps that used to belong to the night.
         XCTAssertEqual([0, 214_000], cache.media()["a1"]?.last?.songOffsets)
         XCTAssertEqual(42, cache.attendance()["a1"]?.checkedInAt)
         XCTAssertEqual("content://cal/7", cache.calendarEvents()["a1"])
@@ -592,11 +670,35 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertEqual(2, cache.media()["a1"]?.count)
     }
 
+    /// The same ticket again, now with its file kept (#568), gives the stored Admission that file.
+    func testTheSameTicketAgainWithItsFileGivesTheStoredAdmissionThatFile() {
+        let stored = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode")]
+        let again = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", original: "kept.pdf")]
+
+        XCTAssertEqual(again, mergedAdmissions(stored, again))
+        XCTAssertEqual(again, mergedAdmissions(again, stored))
+        XCTAssertEqual(again, mergedAdmissions(again, [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode",
+                                                                       original: "other.pdf")]))
+    }
+
+    /// A kept original's name from another phone names a file this phone has not got.
+    func testARecordFromAnotherPhoneArrivesWithNoOriginalNames() {
+        var theirs = StoredAttendance()
+        theirs.admissions = [StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", original: "theirs.pdf")]
+
+        XCTAssertEqual([nil], theirs.withoutOriginals().admissions.map(\.original))
+    }
+
+    func testAnAdmissionsOriginalRoundTrips() throws {
+        let kept = StoredAdmission(payload: "U1lOVEg=", symbology: "maxicode", page: 1, original: "kept.pdf")
+
+        XCTAssertEqual(kept, try JSONDecoder().decode(StoredAdmission.self, from: JSONEncoder().encode(kept)))
+    }
+
     func testTwoRecordsOfOneNightMergeAndTheOlderIdWins() async {
         let s = store()
         let older = await s.createLocalGig(date: "25-06-2026", artist: "The Warning", venue: "Vaterland")
         await s.saveMedia(setlistId: older, media: [photo("content://photo1")])
-        // The same night, found again by an import that didn't know it was here.
         await s.saveMedia(setlistId: "63de6d5b", media: [photo("content://photo2")])
         let newer = await s.load().gigForSetlist("63de6d5b")!.id
 
@@ -620,7 +722,7 @@ final class TimelineStoreTests: XCTestCase {
     /// and therefore assertable.
     func testTheTicketsAdmissionsJoinTheClaimWithoutDisturbingIt() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         await store.saveAttendance(
             setlistId: id,
             attendance: StoredAttendance(provenance: "checked_in", checkedInAt: 42,
@@ -641,7 +743,8 @@ final class TimelineStoreTests: XCTestCase {
     /// ran is kept. Before, the record read before the await was saved back whole.
     func testAnUpdateChangesOnlyItsOwnFieldsOnTheRecordAsItIsNow() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        // 2099: a ticket for a past night lands attended, so the night must stay in the future.
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         await store.saveAttendance(setlistId: id, attendance: StoredAttendance(provenance: "planned"))
         // Attached while the geocoder was out.
         await store.attachAdmissions(setlistId: id, admissions: [admission("TKT-9F31")])
@@ -662,7 +765,7 @@ final class TimelineStoreTests: XCTestCase {
     /// `updateAttendance` falls back the same way.
     func testAnUpdateOfANightWithNoClaimStartsFromTheDefault() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
 
         let settled = await store.updateAttendance(setlistId: id) { $0.venueLat = 1 }
 
@@ -684,7 +787,7 @@ final class TimelineStoreTests: XCTestCase {
     /// nothing but a barcode, and there is then no artist, venue or date worth writing.
     func testAdmissionsCanBeAttachedToANightWithNoClaimOnItYet() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
         let binary = StoredAdmission(payload: Data([0x00, 0xFF, 0xFE]).base64EncodedString(), symbology: "qr")
 
         let settled = await store.attachAdmissions(setlistId: id, admissions: [binary])
@@ -697,7 +800,7 @@ final class TimelineStoreTests: XCTestCase {
     /// shared twice adds nothing (story 19). Before #441 the second QR replaced the first.
     func testASecondTicketAddsItsAdmissionsAndTheSameOneTwiceAddsNothing() async {
         let store = TimelineStore(file: tempFile(contents: "{}"))
-        let id = await store.createLocalGig(date: "14-09-2026", artist: "Big Thief", venue: "")
+        let id = await store.createLocalGig(date: "14-09-2099", artist: "Big Thief", venue: "")
 
         await store.attachAdmissions(setlistId: id, admissions: [admission("first")])
         await store.attachAdmissions(setlistId: id, admissions: [admission("second", "code128", page: 1)])
@@ -854,5 +957,56 @@ final class TimelineStoreTests: XCTestCase {
         XCTAssertFalse(gone)
         let after = await store.load()
         XCTAssertNotNil(after.gigs[id])
+    }
+
+    func testTheDeliberateDeleteAlsoTakesTheNightOffMyCachedAttendedList() async {
+        let store = TimelineStore(file: tempFile(contents: "{}"))
+        let id = await store.createLocalGig(date: "06-08-2026", artist: "Velvet Ditch", venue: "")
+        _ = await store.adoptSetlistId(gigId: id, setlistId: "fm-1")
+        await store.mergeContactNights("dizzi90", [FmSetlist(id: "fm-1"), FmSetlist(id: "other")])
+
+        let gone = await store.deleteGig("fm-1", anyId: true, attendedLane: "dizzi90")
+        XCTAssertTrue(gone)
+        let after = await store.load()
+        XCTAssertEqual(["other"], (after.shows["dizzi90"] ?? []).map(\.id))
+    }
+
+    /// Twin of Android's reload regression: Undo changes answers, never keepsakes.
+    func testUndoAnswersSurviveReloadAndPreserveUnrelatedPairsAndMedia() async throws {
+        let file = tempFile()
+        let s = store(file)
+        await s.saveMedia(setlistId: "my-fm-night", media: [photo("keepsake")])
+        await s.joinNight("their-night", key: "my-fm-night")
+        await s.joinNight("other-night", key: "other-fm-night")
+        await s.unjoinNight("their-night", key: "my-fm-night")
+        var held = await store(file).load()
+        XCTAssertNil(held.nightJoins["their-night"])
+        XCTAssertNotNil(held.nightJoins["other-night"])
+        XCTAssertEqual(["keepsake"], held.media()["my-fm-night"]?.map(\.ref))
+
+        await s.dismissMaybe("their-night", key: "my-fm-night")
+        await s.dismissMaybe("their-night", key: "other-fm-night")
+        await s.undismissMaybe("their-night", key: "my-fm-night")
+        held = await store(file).load()
+        let other = try XCTUnwrap(held.gigForSetlist("other-fm-night"))
+        XCTAssertEqual([other.id], held.nightDismissals["their-night"])
+        XCTAssertEqual(["keepsake"], held.media()["my-fm-night"]?.map(\.ref))
+    }
+
+    func testATicketPlannedAfterItsNightHasPassedLoadsAsAttended() async {
+        let timelines = store()
+        let past = await timelines.createLocalGig(date: "22-10-2024", artist: "Øystein Sunde", venue: "Folketeateret")
+        let future = await timelines.createLocalGig(date: "22-10-2099", artist: "Øystein Sunde", venue: "Folketeateret")
+        for (gigId, date) in [(past, "22-10-2024"), (future, "22-10-2099")] {
+            _ = await timelines.savePlanned(localGigSetlist(gigId: gigId, artist: "Øystein Sunde", date: date,
+                                                            venue: "Folketeateret", city: ""))
+            _ = await timelines.attachAdmissions(setlistId: gigId,
+                                                 admissions: [StoredAdmission(payload: "cGF5bG9hZA==", symbology: "qr")])
+        }
+
+        let loaded = await timelines.load().attendance()
+        XCTAssertEqual(loaded[past]?.provenance, "attended")
+        XCTAssertEqual(loaded[past]?.admissions.count, 1)
+        XCTAssertEqual(loaded[future]?.provenance, "planned")
     }
 }

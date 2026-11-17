@@ -112,13 +112,22 @@ struct HandoverManifest: Codable {
     var counts: [String: Int] = [:]
     /// Who I am — see `Identities`. Empty on a Contact manifest, which never carries one.
     var identities: Identities = Identities()
+    /// My **Nights**, offered to a **Contact** on the **Reconcile** (#405): the whole
+    /// **Spine**, hand-logged and imported alike, so a Contact with no setlist.fm account —
+    /// or a Contact of one — holds a **Lane** that draws offline. Empty on a device
+    /// handover, which moves the whole timeline already. The whole list, deliberately: an
+    /// attended Night is what overlap is computed from, and the sharing boundary stays on
+    /// the media. Android's `HandoverManifest.nights`.
+    var nights: [FmSetlist] = []
 
     init(timeline: TimelineCache = TimelineCache(), media: [OfferedMedia] = [],
-         counts: [String: Int] = [:], identities: Identities = Identities()) {
+         counts: [String: Int] = [:], identities: Identities = Identities(),
+         nights: [FmSetlist] = []) {
         self.timeline = timeline
         self.media = media
         self.counts = counts
         self.identities = identities
+        self.nights = nights
     }
 
     init(from decoder: Decoder) throws {
@@ -127,6 +136,9 @@ struct HandoverManifest: Codable {
         media = (try? c.decodeIfPresent([OfferedMedia].self, forKey: .media)) ?? nil ?? []
         counts = (try? c.decodeIfPresent([String: Int].self, forKey: .counts)) ?? nil ?? [:]
         identities = (try? c.decodeIfPresent(Identities.self, forKey: .identities)) ?? nil ?? Identities()
+        // A peer on a build before #405 sends none, which is an older build and not a
+        // Contact with no Nights; either way there is nothing to take.
+        nights = (try? c.decodeIfPresent([FmSetlist].self, forKey: .nights)) ?? nil ?? []
     }
 }
 

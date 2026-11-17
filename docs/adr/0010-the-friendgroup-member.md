@@ -2,6 +2,12 @@
 
 **Status:** accepted (2026-08-11)
 
+## Summary
+
+- **Wants:** the nights shared with friends — going together, finding each other on arrival, keepsakes held in common.
+- **A story serves them when:** it helps meet, find, exchange with or remember alongside people she knows.
+- **Never:** a canonical shared object; each person owns their own copy.
+
 ## Context
 
 Social. The multi-timeline view is a symbol of her friendships with fellow concertgoers rather than a

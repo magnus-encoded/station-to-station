@@ -51,6 +51,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -135,7 +141,7 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     // timelines are where that is known — so the lanes are asked for, cached-and-
     // complete being the common case, rather than presence being read off who happened
     // to hand over a photograph.
-    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    LaunchedEffect(Unit) { viewModel.contacts.loadFriendTimelines() }
     val night = remember(
         media, state.friends, setlist.id, log, state.showsByFriend, checkedIn, witnessed,
         state.festivals,
@@ -164,8 +170,8 @@ fun GigFlyoverScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
     Flyover(
         night = night,
-        loadThumb = viewModel::photoPreview,
-        loadFull = viewModel::fullPhoto,
+        loadThumb = viewModel.gigMedia::photoPreview,
+        loadFull = viewModel.gigMedia::fullPhoto,
         onBack = onBack,
     )
 }
@@ -191,7 +197,7 @@ fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several,
     // out — it is not this rung's only one.
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(Unit) { viewModel.loadFriendTimelines() }
+    LaunchedEffect(Unit) { viewModel.contacts.loadFriendTimelines() }
     val night = remember(
         node, state.mediaBySetlist, state.friends, state.logsByGig, state.showsByFriend,
         state.attendanceByGig, state.contactLight, state.festivals,
@@ -214,8 +220,8 @@ fun CollectionFlyoverScreen(viewModel: AppViewModel, node: TimelineNode.Several,
 
     Flyover(
         night = night,
-        loadThumb = viewModel::photoPreview,
-        loadFull = viewModel::fullPhoto,
+        loadThumb = viewModel.gigMedia::photoPreview,
+        loadFull = viewModel.gigMedia::fullPhoto,
         onBack = onBack,
     )
 }
@@ -259,6 +265,16 @@ internal fun Flyover(
 
     var zoomed by remember(night) { mutableStateOf<FlyoverPhoto?>(null) }
     var fps by remember { mutableIntStateOf(0) }
+
+    // The song the walk is standing at, for a screen reader (#164). Derived, so it
+    // changes once per marker and not once per frame of travel.
+    val here by remember(night) {
+        derivedStateOf {
+            night.markers.minByOrNull { abs(net(it.z, travel.value.toDouble()) - FocalPlane) }?.label
+        }
+    }
+    val mineLit = night.photos.firstOrNull { it.id == litMine }
+    val theirsLit = night.photos.firstOrNull { it.id == litTheirs }
 
     // Inertia, and the clamp that makes the two ends of the walk real. Runs for as long
     // as the screen is up; a frame on which nothing moved invalidates nothing and so
@@ -338,6 +354,36 @@ internal fun Flyover(
                     val id = if (mine) litMine else litTheirs
                     zoomed = night.photos.firstOrNull { it.id == id }
                 }
+            }
+            // The walk is a drag and a tap on a flank, and TalkBack takes both for
+            // itself. The same moves as actions: a step is one song's depth, and the
+            // photographs offered are the ones the thumb would take right now (#164).
+            .semantics {
+                contentDescription = "The night, walked"
+                here?.let { stateDescription = it }
+                customActions = buildList {
+                    add(
+                        CustomAccessibilityAction("Walk on") {
+                            travel.velocity = 0f
+                            travel.value += SongGap.toFloat()
+                            true
+                        },
+                    )
+                    add(
+                        CustomAccessibilityAction("Walk back") {
+                            travel.velocity = 0f
+                            travel.value -= SongGap.toFloat()
+                            true
+                        },
+                    )
+                    mineLit?.let { photo ->
+                        add(CustomAccessibilityAction("Open your photo") { zoomed = photo; true })
+                    }
+                    theirsLit?.let { photo ->
+                        val who = photo.person?.name?.ifBlank { null } ?: "someone else"
+                        add(CustomAccessibilityAction("Open $who's photo") { zoomed = photo; true })
+                    }
+                }
             },
     ) {
         Floor(night, travel, frame, density)
@@ -374,9 +420,6 @@ internal fun Flyover(
                 density = density,
             )
         }
-        // Whose the lit photograph is, said once, unscaled — the outline carries the
-        // colour and this carries the name, and neither has to be read off a caption
-        // rushing past at an angle.
         LitName(night, litMine, litTheirs)
 
         if (BuildConfig.DEBUG) {
@@ -883,7 +926,12 @@ private fun Zoomed(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(photo.id) { detectTapGestures { onDismiss() } },
+            .pointerInput(photo.id) { detectTapGestures { onDismiss() } }
+            // A tap anywhere closes it; the reader needs that tap named (#164).
+            .semantics {
+                contentDescription = if (photo.isVideo) "Video from the night" else "Photo from the night"
+                onClick(label = "Close") { onDismiss(); true }
+            },
     ) {
         if (photo.isVideo) {
             AndroidView(
@@ -926,8 +974,6 @@ private val Amber = Color(0xFFE7B24C)
 
 /** Where the horizon sits: a little above the middle, so the floor has room to read. */
 private const val VanishY = 0.46f
-
-/** Degrees each photograph turns toward the walker. */
 
 /** A photograph's longest edge, in flyover units. */
 private const val PhotoLongEdge = 148.0

@@ -57,9 +57,9 @@ final class PdfKitPage: PdfPage {
     private static func rasterize(_ page: PDFPage) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox).size
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let longEdge = max(bounds.width, bounds.height)
-        let scale = max(1, min(Self.maxEdge / longEdge, 3))
-        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        // Up to 3x, long edge at most `maxEdge`, and never floored at 1x: the floor this
+        // used to have drew a poster-sized page at its own full size (#165).
+        let size = boundedPageSize(bounds, scale: 3, maxEdge: Self.maxEdge)
         return page.thumbnail(of: size, for: .mediaBox).cgImage
     }
 }

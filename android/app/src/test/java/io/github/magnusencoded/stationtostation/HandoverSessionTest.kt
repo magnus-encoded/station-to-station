@@ -57,7 +57,6 @@ class HandoverSessionTest {
     private fun tempDir(name: String): File =
         File.createTempFile(name, "").apply { delete(); mkdirs() }
 
-    /** One night, one photograph, in the source's own ids. */
     private fun sourceCache(ref: String, personal: Boolean = false) = TimelineCache(
         gigs = mapOf("gig-1" to StoredGig(id = "gig-1", setlistId = "sl-1", artist = "Paper Cranes")),
         gigMedia = mapOf(
@@ -149,12 +148,9 @@ class HandoverSessionTest {
         // The receipt is honest that accounts were part of this handover and arrived (#143
         // story 9) — reusing the same `AccountsMove` the acknowledged step already is.
         assertEquals(AccountsMove.ACKNOWLEDGED, receipt?.accountsMove)
-        // Both phones say the same thing about the transfer.
         assertEquals(receipt, sourceReceipt)
         assertEquals("a photograph of the front row", landing.readText())
 
-        // The union that would be written: their night, their photograph, pointed at the
-        // file that actually arrived.
         val landed = applied!!.merged.gigMedia.getValue("gig-1").single()
         assertEquals("photo-1", landed.id)
         assertEquals(landing.toURI().toString(), landed.ref)
@@ -390,8 +386,6 @@ class HandoverSessionTest {
 
         assertEquals(1, receipt?.landed)
         assertTrue(receipt!!.trouble.isNotEmpty())
-        // A coherent smaller library: the photograph that arrived is attached, the one
-        // that did not is simply absent — no record pointing at a file that is not there.
         val landed = applied!!.merged.gigMedia.getValue("gig-1")
         assertEquals(listOf("photo-1"), landed.map { it.id })
         assertEquals("first", File(dir, "photo-1.bin").readText())
@@ -471,7 +465,6 @@ class HandoverSessionTest {
         hosting.join(5000)
         server.close()
 
-        // Who I am travelled; nothing that acts as me did.
         assertEquals("wandering-owl", arrivedAccounts?.identities?.setlistFmUser)
         assertNull(arrivedAccounts?.credentials?.spotifyRefreshToken)
         assertEquals(1, receipt?.landed)

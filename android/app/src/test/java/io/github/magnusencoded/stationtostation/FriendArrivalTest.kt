@@ -161,4 +161,58 @@ class FriendArrivalTest {
             friendArrival(Friend(setlistfm = "lemmy", name = "Lemmy", publicKey = "k-lemmy"), known),
         )
     }
+
+    // --- The key is the identity; the username is an attribute (#405) ---
+
+    private val dio = Friend(setlistfm = "", name = "Dio", publicKey = "k-dio")
+
+    @Test
+    fun `a contact with no account arriving into empty space is written silently`() {
+        assertEquals(FriendArrival.New(dio), friendArrival(dio, known))
+    }
+
+    @Test
+    fun `the same account-less card again is neither a write nor a question`() {
+        assertEquals(FriendArrival.Unchanged, friendArrival(dio, known + dio))
+    }
+
+    @Test
+    fun `an account-less card that changes what I hold still asks`() {
+        val card = dio.copy(name = "Ronnie James Dio")
+
+        assertEquals(FriendArrival.Conflict(dio, card), friendArrival(card, known + dio))
+    }
+
+    /** Two people without an account are two people: a blank username matches nobody. */
+    @Test
+    fun `two contacts without an account are not one contact`() {
+        val other = Friend(setlistfm = "", name = "Dio", publicKey = "k-someone-else")
+
+        assertEquals(FriendArrival.New(other), friendArrival(other, known + dio))
+    }
+
+    @Test
+    fun `a held key is matched whatever username the card carries`() {
+        val keyed = listOf(Friend(setlistfm = "ozzy", name = "Ozzy", publicKey = "k-ozzy"))
+        val renamed = Friend(setlistfm = "ozzy2026", name = "Ozzy", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Conflict(keyed[0], renamed), friendArrival(renamed, keyed))
+    }
+
+    /** Silent about the username is not asking to be unfollowed on setlist.fm. */
+    @Test
+    fun `a card with no username does not propose clearing one I hold`() {
+        val keyed = listOf(Friend(setlistfm = "ozzy", name = "Ozzy", publicKey = "k-ozzy"))
+        val card = Friend(setlistfm = "", name = "Ozzy", publicKey = "k-ozzy")
+
+        assertEquals(FriendArrival.Unchanged, friendArrival(card, keyed))
+    }
+
+    /** It changes where their Lane comes from, so it is a change and it asks. */
+    @Test
+    fun `a first username for a contact held without one asks`() {
+        val card = dio.copy(setlistfm = "dio")
+
+        assertEquals(FriendArrival.Conflict(dio, card), friendArrival(card, known + dio))
+    }
 }

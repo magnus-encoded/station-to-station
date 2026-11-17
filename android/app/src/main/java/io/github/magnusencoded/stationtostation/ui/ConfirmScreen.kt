@@ -79,11 +79,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -155,7 +159,7 @@ private fun ConfirmScreenContent(
     // result feeds straight back into the search.
     val photoPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { viewModel.loadCoverCandidates() }
+    ) { viewModel.playlist.loadCoverCandidates() }
     // Set when "create" is pressed with a clip as the cover: the frame picker stands
     // between the press and the playlist.
     var pickingFrameFor by remember { mutableStateOf<Uri?>(null) }
@@ -215,8 +219,8 @@ private fun ConfirmScreenContent(
                         // sitting on the screen the whole time.
                         onClick = {
                             val cover = state.selectedCoverUri
-                            if (cover != null && viewModel.isVideoCover(cover)) pickingFrameFor = cover
-                            else viewModel.createPlaylist()
+                            if (cover != null && viewModel.gigMedia.isVideo(cover)) pickingFrameFor = cover
+                            else viewModel.playlist.createPlaylist()
                         },
                         enabled = selectedCount > 0 && !state.creatingPlaylist && !state.matching,
                         modifier = Modifier.fillMaxWidth(),
@@ -241,6 +245,7 @@ private fun ConfirmScreenContent(
                         fontFamily = Serif,
                         fontSize = 24.sp,
                         color = Ink,
+                        modifier = Modifier.asHeading(),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -252,7 +257,7 @@ private fun ConfirmScreenContent(
             }
             OutlinedTextField(
                 value = state.playlistName,
-                onValueChange = viewModel::setPlaylistName,
+                onValueChange = viewModel.playlist::setPlaylistName,
                 label = { Text("Playlist name") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -273,7 +278,7 @@ private fun ConfirmScreenContent(
                 }
                 Switch(
                     checked = state.playlistPublic,
-                    onCheckedChange = viewModel::setPlaylistPublic,
+                    onCheckedChange = viewModel.playlist::setPlaylistPublic,
                     modifier = Modifier.semantics { contentDescription = "Public playlist" },
                 )
             }
@@ -290,7 +295,7 @@ private fun ConfirmScreenContent(
                     onRequestPermission = {
                         photoPermissionLauncher.launch(PhotoRepository.requiredPermissions())
                     },
-                    onCoverChange = viewModel::setCover,
+                    onCoverChange = viewModel.playlist::setCover,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -327,9 +332,9 @@ private fun ConfirmScreenContent(
                         onToggleExpand = {
                             expandedIndex = if (expandedIndex == index) -1 else index
                         },
-                        onToggleIncluded = { viewModel.toggleIncluded(index) },
-                        onChooseCandidate = { viewModel.chooseCandidate(index, it) },
-                        onResearch = { viewModel.researchSong(index, it) },
+                        onToggleIncluded = { viewModel.playlist.toggleIncluded(index) },
+                        onChooseCandidate = { viewModel.playlist.chooseCandidate(index, it) },
+                        onResearch = { viewModel.playlist.researchSong(index, it) },
                     )
                 }
             }
@@ -341,13 +346,13 @@ private fun ConfirmScreenContent(
         VideoFrameDialog(
             uri = videoUri,
             frameMs = state.selectedCoverFrameMs,
-            durationOf = viewModel::videoDurationMs,
-            frameAt = viewModel::videoFrameAt,
-            onFrameChange = viewModel::setCoverFrame,
+            durationOf = viewModel.gigMedia::videoDurationMs,
+            frameAt = viewModel.gigMedia::videoFrameAt,
+            onFrameChange = viewModel.playlist::setCoverFrame,
             onDismiss = { pickingFrameFor = null },
             onConfirm = {
                 pickingFrameFor = null
-                viewModel.createPlaylist()
+                viewModel.playlist.createPlaylist()
             },
         )
     }
@@ -493,12 +498,13 @@ private fun CoverPicker(
             loading -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(16.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall)
+                Text("Looking through your gallery…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.spokenOnChange())
             }
             searched -> Text(
                 "No photos from ${showDate ?: "that night"} in your gallery — " +
                     "Spotify will build the cover from the album art.",
                 style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.spokenOnChange(),
             )
         }
     }
@@ -567,6 +573,21 @@ private fun VideoFrameDialog(
                         }
                         .pointerInput(uri, duration) {
                             detectTapGestures { offset -> scrubTo(offset.y) }
+                        }
+                        // A slider to TalkBack, which cannot drag a thumb: the reader's
+                        // own adjust gesture steps through the clip a twentieth at a
+                        // time, and says where it is (#164).
+                        .semantics {
+                            contentDescription = "Where in the clip"
+                            stateDescription = "%d:%02d".format(frameMs / 60_000, (frameMs / 1000) % 60)
+                            progressBarRangeInfo = ProgressBarRangeInfo(
+                                frameMs.toFloat(),
+                                0f..duration.toFloat().coerceAtLeast(1f),
+                            )
+                            setProgress { target ->
+                                if (duration > 0L) onFrameChange(target.toLong().coerceIn(0L, duration))
+                                duration > 0L
+                            }
                         },
                     contentAlignment = Alignment.TopCenter,
                 ) {

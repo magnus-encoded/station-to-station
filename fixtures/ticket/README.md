@@ -211,9 +211,9 @@ case's `about` says which lines are which.
 | `ticketline-*` | **Real** Pixel readings of `phone-future` (the Gig `f9c51210`), from the Android probe (2026-09-25). Redacted lines are the marker. The venue is `unchecked` because the probe couldn't confirm it, and `skipsPrompt` is `unchecked` because it depends on the venue. |
 | `skambankt-billettservice-ocr-only` | **Real** ML Kit lines, page 1 of `real-eticket-2`. The probe's own lines are 11, 15, 17, 19, 25, 27 and 62. The rest of lines 0–25 are **placed** from the real ML Kit blocks in Android's `TicketParsingTest`, which match the probe's skeleton one to one. The buyer name and numbers are made up. |
 | `skambankt-billettservice-text-layer-and-ocr` | **Real** text-layer skeleton: only `PARKTEATRET SCENE` survived redaction, and `SKAMBANKT` isn't a text-layer line at all. The date line is reconstructed. Only the date is asserted. |
-| `dumdumboys-eventim-ocr-only` | **Real** ML Kit blocks from Android's `TicketParsingTest`. Personal data and the printed barcode number are made up. `knownFailure: artist` and `skipsPrompt` (see *Decisions*). |
-| `dumdumboys-eventim-text-layer-and-ocr` | **Real** text-layer skeleton of `real-eventim-2` (3 real lines). The purchase-date line, the date, the venue and the address are **reconstructed**. It pins the date rule. `knownFailure: artist` and `skipsPrompt`, and the venue is `unchecked`. |
-| `ocs-*` | **Real** Pixel readings of PDFs the probe generated (Ocean Colour Scene, not valid for admission). `ocs-flattened-ocr-only` is the OCR-only twin of every `ocs-*` case. `ocs-artist-image` has `knownFailure` on artist, venue and skipsPrompt (see *Decisions*). |
+| `dumdumboys-eventim-ocr-only` | **Real** ML Kit blocks from Android's `TicketParsingTest`. Personal data and the printed barcode number are made up. The artist is the whole event line, and the prompt is shown (see *The artist line*). |
+| `dumdumboys-eventim-text-layer-and-ocr` | **Real** text-layer skeleton of `real-eventim-2` (3 real lines). The purchase-date line, the date, the venue and the address are **reconstructed**. It pins the date rule. The artist is the whole event line, the prompt is shown, and the venue is `unchecked`. |
+| `ocs-*` | **Real** Pixel readings of PDFs the probe generated (Ocean Colour Scene, not valid for admission). `ocs-flattened-ocr-only` is the OCR-only twin of every `ocs-*` case. `ocs-artist-image` finds no artist (see *The artist line*). |
 | `date-rule-*`, `guard-around-the-date`, `admission-rule-*`, `admissions-*` | **Synthetic**, written by hand to pin one rule each. `admissions-three-on-three-pages` and `admissions-code128-pair-printed` take the shapes of the probe's Billettservice and Eventim tickets, with made-up payloads. |
 
 Replace a reconstructed or redacted reading with a captured one whenever the real PDF
@@ -221,18 +221,23 @@ turns up, and drop `unchecked` and `knownFailure` as the evidence allows. The br
 corpus of real tickets matched against setlist.fm is #531; this is its parser-level
 subset.
 
+## The artist line
+
+Decided 2026-09-27 (#526):
+
+- **An artist drawn as a picture** (`ocs-artist-image`). When the text layer has no
+  artist, the app does not take one from a line only OCR has. That line is a picture,
+  and a picture is a logo as often as a name. The artist stays empty, and the person
+  types it in the prompt.
+- **A date at the top of the page.** When no guessable line sits above the date, the
+  line under it is the venue, and there is no artist. The lines further down are not
+  guessed as the artist: they are a disclaimer, or the venue again.
+- **An artist line with a tour name** (Dumdumboys: `Dumdumboys – XL [romertallførti]`).
+  The whole line is the artist. A complete read never skips the prompt when the artist
+  has a bracket or a spaced dash in it, so the person cuts it down before it is added.
+
 ## Decisions left open
 
-- **An artist drawn as an image** (`ocs-artist-image`). The rule that keeps an OCR-only
-  logo out also keeps out an OCR-only artist whenever the text layer has any other
-  candidate. Here both readings then agree on the wrong fields, and a complete read
-  would skip the prompt. Fixing it means weakening the TICKETLINE protection, so the
-  case is marked as a known failure until someone decides.
-- **Dumdumboys**: the event line is `Dumdumboys – XL [romertallførti]`. Nothing generic
-  says where the band's name ends. Since #441 its Code 128s make the read complete, so
-  both cases would now be added without asking, under that wrong artist: marked a known
-  failure on `skipsPrompt` as well. Whether a complete read should need the prompt when
-  its artist line carries a tour name is the same open question as the artist rule.
 - **The retail rule and the 2D rule** (*The Admissions*, rule 2) are provisional. A
   real ticket whose Admission is an EAN or a Code 128 beside a QR that isn't would be
   read wrong by them.
