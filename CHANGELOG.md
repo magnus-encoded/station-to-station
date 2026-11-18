@@ -16,6 +16,30 @@ so, before any feature, and the fuller account has a **Privacy.** paragraph.
 Every version listed under "What has changed" in the
 [privacy policy](docs/privacy-policy.md#what-has-changed) is checked for this.
 
+## 1.12.2 — 2026-11-18
+
+<!-- play -->
+Privacy: Gossip now keeps newly received facts only for nights already on your phone. Older saved facts remain; above a 20,000-fact target, strangers' facts may be removed, while your own and recognised contacts' facts are protected from that removal. Other nights' facts can still be carried briefly. On iPhone, Gossip data can be included in iCloud backup, correcting our earlier policy. Gossip reuses signature checks, and Android's Nearby library and build tools are updated.
+<!-- /play -->
+
+**Privacy.** Received Gossip facts are now kept in the durable record only when
+linked to a night already on your phone; your own facts are also kept. Other
+nights' facts can still be carried briefly to the next nearby phone. Over a
+20,000-fact target, strangers' facts are removed expired-first, then oldest-first;
+your own and recognised Contacts' facts are protected and may exceed the target.
+Previously, every accepted non-receipt fact from an unblocked author was kept.
+The admission rule does not itself remove older saved facts. No new information
+is sent, no new recipient is added, and no permission is added. See the
+[privacy policy](https://magnus-encoded.github.io/station-to-station/privacy-policy.html#what-has-changed).
+
+**Less repeated work at a gig.** Gossip reuses signature checks for unchanged
+facts held in memory, instead of repeating them during each exchange. Restarting
+the app verifies them again.
+
+**Fixes.** Android's Nearby library and build tools are updated. iPhone controller
+tests wait for saved state with a deadline and report a timeout, instead of
+stopping after a fixed number of scheduler yields.
+
 ## 1.12.1 — 2026-10-07
 
 <!-- play -->

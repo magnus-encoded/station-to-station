@@ -1,6 +1,6 @@
 # Privacy Policy — Station to Station
 
-Last updated: 5 October 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
+Last updated: 18 November 2026 (first published 12 August 2026; see [What has changed](#what-has-changed))
 
 Station to Station is a personal record of concerts you have attended. This policy
 describes what the app does with your data.
@@ -36,7 +36,7 @@ you stop it.
 - Your Spotify login token, if you have connected Spotify
 - Tickets you share with the app, and the barcodes read from them
 - Festival timetables you have looked up
-- What your phone has heard and is passing on at a gig, until that night expires
+- Gossip facts kept about nights on your phone, and temporary copies being passed on at a gig
 
 All of this is held in the app's private storage. Uninstalling the app deletes it.
 
@@ -44,8 +44,8 @@ All of this is held in the app's private storage. Uninstalling the app deletes i
 include the app's storage, so your concert history, contacts and setlist.fm username
 come back if you move to a new phone. The backup belongs to your Google or Apple account
 and is governed by their terms, not ours; we cannot see it. On Android, the app leaves
-two things out of the backup on purpose: your Spotify login, and what your phone has
-been carrying at gigs, which is about other people. You can turn app backups off in your
+two things out of the backup on purpose: your Spotify login, and the Gossip store,
+including kept facts and temporary copies about other people. You can turn app backups off in your
 phone's settings.
 
 ## Services the app contacts
@@ -141,13 +141,24 @@ stranger's phone learns is a gig, a time and some text, not whose it is. Your na
 card, your photos, your notes and your location are not part of it.
 
 Your phone does the same for other people: it holds facts it has heard and hands them on
-to the next phone it meets, for a short while. What it carries for strangers never
-appears in your record, and is not included in your phone's backup.
+to the next phone it meets, for a short while. Carrying a fact never adds a night to
+your record. A received fact can also be kept durably when linked to a night already on
+your phone, including a fact written by a stranger; your own facts are also kept.
+Facts about other nights are carried temporarily rather than newly kept in the durable
+record. Older saved facts are not removed merely because their night is absent.
+
+The durable store has a target of 20,000 facts. Above it, strangers' facts can be
+removed: expired ones first, then oldest first. Your own facts and those whose signer
+is recognised as a contact are protected and may take the store above that target.
+Kept facts survive the end of the night's relay period. On Android, the entire Gossip
+store is excluded from phone backups. On iPhone, the Gossip ledger is kept in
+Application Support and can be included in iCloud backup when you have backups
+turned on.
 
 Gossip runs in the background while you are checked in. On Android a notification says
 so for as long as it runs, and has a Stop button. It ends on its own 30 minutes after you
-mark the set complete, and never later than 06:00 the morning after. Every fact expires
-at the same 06:00. You can block a person's facts from entering your record; blocking is
+mark the set complete, and never later than 06:00 the morning after. Every fact stops being eligible to travel
+at the same 06:00; a copy already kept in the durable record can remain. You can block a person's facts from entering your record; blocking is
 not visible to anyone else.
 
 Delivery is best effort: nothing guarantees a fact reaches anyone.
@@ -180,8 +191,9 @@ disables that feature.
 Uninstall the app. Everything it stored is removed with it. Material you have already
 shared with a contact is on their device and is theirs to delete, with one exception: a
 night you added by hand and then delete is removed from their phone the next time you
-sync, along with any photos you sent for it that they had not yet accepted. Facts passed on at a gig
-expire on their own at 06:00 the morning after. A copy in your phone's backup is deleted
+sync, along with any photos you sent for it that they had not yet accepted. Relay copies of facts
+expire at 06:00 the morning after; facts already kept in the durable record can remain
+until removed by the storage limit or by uninstalling the app. A copy in your phone's backup is deleted
 through your Google or Apple account.
 
 To disconnect Spotify without uninstalling, use "Log out of Spotify" in Settings, and
@@ -190,6 +202,19 @@ revoke the app at [spotify.com/account/apps](https://www.spotify.com/account/app
 ## What has changed
 
 Version numbers are the app's; the dates are when each version was released.
+
+**18 November 2026** — what 1.12.2 changes:
+
+- **1.12.2, 18 November 2026: less Gossip kept on your phone.** Received facts are
+  newly kept durably only for nights already on your phone; previously every accepted
+  non-receipt fact from an unblocked author was kept. Other nights' facts can still
+  be carried briefly, and older saved facts are not purged merely by this admission
+  rule. Above a 20,000-fact target, strangers' facts can be removed, expired-first then
+  oldest-first; your own and recognised contacts' facts are protected. Nothing new
+  leaves your phone or reaches a new recipient. This policy also clarifies that the
+  06:00 expiry ends relaying, not the lifetime of a fact already kept in your record.
+  It corrects an earlier backup statement: on iPhone, Gossip data can be included
+  in iCloud backup when backups are turned on.
 
 **28 September 2026** — what 1.11.0 changes:
 
