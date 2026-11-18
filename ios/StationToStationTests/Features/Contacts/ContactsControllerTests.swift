@@ -49,8 +49,22 @@ final class ContactsControllerTests: XCTestCase {
         MaybeNight(friend: Friend(setlistfm: "ozzy"), mine: night(mine), theirs: night(theirs))
     }
 
-    private func settled(_ done: () -> Bool) async {
-        for _ in 0..<1000 where !done() { await Task.yield() }
+    private func settled(file: StaticString = #filePath, line: UInt = #line,
+                         _ done: () -> Bool) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while !done() {
+            guard clock.now < deadline else {
+                XCTFail("Controller state did not settle within five seconds", file: file, line: line)
+                return
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(10))
+            } catch {
+                XCTFail("Cancelled while waiting for controller state", file: file, line: line)
+                return
+            }
+        }
     }
 
     func testJoiningANightShowsTheJoinOnceWritten() async {
