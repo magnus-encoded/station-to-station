@@ -120,6 +120,30 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ${{ steps.creds.outputs.args }}
 
+      - name: Check built plists carry the configured version
+        working-directory: ios
+        run: |
+          app=build/Build/Products/Debug-iphoneos/StationToStation.app
+          python3 - "$app" <<'PY'
+          import json, plistlib, subprocess, sys
+          app = sys.argv[1]
+          out = subprocess.check_output([
+              "xcodebuild", "-showBuildSettings", "-json",
+              "-project", "StationToStation.xcodeproj",
+              "-scheme", "StationToStation", "-sdk", "iphoneos",
+              "-configuration", "Debug"])
+          settings = json.loads(out)[0]["buildSettings"]
+          want = (settings["MARKETING_VERSION"], settings["CURRENT_PROJECT_VERSION"])
+          bad = False
+          for plist in (app, app + "/PlugIns/TicketShare.appex"):
+              with open(plist + "/Info.plist", "rb") as f:
+                  info = plistlib.load(f)
+              got = (info.get("CFBundleShortVersionString"), info.get("CFBundleVersion"))
+              print(plist, got, "expected", want)
+              bad |= got != want
+          sys.exit(1 if bad else 0)
+          PY
+
       - name: Package .ipa
         working-directory: ios
         run: |

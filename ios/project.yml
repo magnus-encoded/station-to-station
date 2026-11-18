@@ -61,6 +61,10 @@ targets:
       path: StationToStation/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
+        # XcodeGen otherwise writes literal 1.0 / 1 into the plist, ignoring the
+        # build settings.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Ground, the same near-black the timeline is drawn on, so a cold start is
         # one colour from the launch screen through to the first rows.
         UILaunchScreen:
@@ -176,6 +180,10 @@ targets:
       path: TicketShare/Info.plist
       properties:
         CFBundleDisplayName: Station to Station
+        # XcodeGen otherwise writes literal 1.0 / 1 into the plist, ignoring the
+        # build settings.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
