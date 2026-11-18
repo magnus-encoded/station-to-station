@@ -152,7 +152,8 @@ removed: expired ones first, then oldest first. Your own facts and those whose s
 is recognised as a contact are protected and may take the store above that target.
 Kept facts survive the end of the night's relay period. On Android, the entire Gossip
 store is excluded from phone backups. On iPhone, the Gossip ledger is kept in
-Application Support and can be included in iCloud backup when you have backups turned on.
+Application Support and can be included in iCloud backup when you have backups
+turned on.
 
 Gossip runs in the background while you are checked in. On Android a notification says
 so for as long as it runs, and has a Stop button. It ends on its own 30 minutes after you
@@ -202,6 +203,8 @@ revoke the app at [spotify.com/account/apps](https://www.spotify.com/account/app
 
 Version numbers are the app's; the dates are when each version was released.
 
+**18 November 2026** — what 1.12.2 changes:
+
 - **1.12.2, 18 November 2026: less Gossip kept on your phone.** Received facts are
   newly kept durably only for nights already on your phone; previously every accepted
   non-receipt fact from an unblocked author was kept. Other nights' facts can still
@@ -210,6 +213,8 @@ Version numbers are the app's; the dates are when each version was released.
   oldest-first; your own and recognised contacts' facts are protected. Nothing new
   leaves your phone or reaches a new recipient. This policy also clarifies that the
   06:00 expiry ends relaying, not the lifetime of a fact already kept in your record.
+  It corrects an earlier backup statement: on iPhone, Gossip data can be included
+  in iCloud backup when backups are turned on.
 
 **28 September 2026** — what 1.11.0 changes:
 

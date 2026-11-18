@@ -19,7 +19,7 @@ Every version listed under "What has changed" in the
 ## 1.12.2 — 2026-11-18
 
 <!-- play -->
-Privacy: Gossip now keeps received facts only for nights already on your phone, while still carrying other nights' facts briefly. Over a 20,000-fact target, older strangers' facts can be removed; your own and recognised contacts' facts are protected from this removal. Gossip also reuses signature checks to reduce repeated work. Android's Nearby library and build tools are updated.
+Privacy: Gossip now keeps newly received facts only for nights already on your phone. Older saved facts remain; above a 20,000-fact target, strangers' facts may be removed, while your own and recognised contacts' facts are protected from that removal. Other nights' facts can still be carried briefly. On iPhone, Gossip data can be included in iCloud backup, correcting our earlier policy. Gossip reuses signature checks, and Android's Nearby library and build tools are updated.
 <!-- /play -->
 
 **Privacy.** Received Gossip facts are now kept in the durable record only when
