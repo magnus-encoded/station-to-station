@@ -4,10 +4,10 @@ name: Release tools
 # a malformed entry is cheaper to learn about on the release PR.
 on:
   pull_request:
-    paths: [ "tools/*.py", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
+    paths: [ "tools/*.py", "tools/merge-gate", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
   push:
     branches: [ main ]
-    paths: [ "tools/*.py", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
+    paths: [ "tools/*.py", "tools/merge-gate", "CHANGELOG.md", "docs/privacy-policy.md", ".github/workflows/tools.yml" ]
 
 jobs:
   test:
