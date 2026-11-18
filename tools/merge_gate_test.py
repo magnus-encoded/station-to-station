@@ -236,6 +236,121 @@ class MergeGateTest(unittest.TestCase):
     def test_visual_pr_with_screenshot_in_non_author_approval_merges(self):
         self.assertMerges(pr(files=VISUAL, reviews=[review("Codex", "![bill](https://example.com/bill.png)")]))
 
+    def test_completed_check_without_a_conclusion_is_refused(self):
+        for conclusion in (None, ""):
+            self.assertRefuses(pr(statusCheckRollup=[{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": conclusion}]), "ci-unknown")
+
+    def test_check_run_without_a_status_is_refused(self):
+        self.assertRefuses(pr(statusCheckRollup=[{"__typename": "CheckRun", "conclusion": "SUCCESS"}]), "ci-unknown")
+
+    def test_unknown_check_status_or_conclusion_is_refused(self):
+        for record in ({"status": "SOMETHING", "conclusion": "SUCCESS"}, {"status": "COMPLETED", "conclusion": "MYSTERY"}):
+            self.assertRefuses(pr(statusCheckRollup=[record]), "ci-unknown")
+
+    def test_malformed_check_records_are_refused(self):
+        for record in ({}, None, "SUCCESS", {"__typename": "Other", "status": "COMPLETED", "conclusion": "SUCCESS"}):
+            self.assertRefuses(pr(statusCheckRollup=[record]), "ci-unknown")
+
+    def test_one_incomplete_record_blocks_otherwise_green_checks(self):
+        green = {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        self.assertRefuses(pr(statusCheckRollup=[green, {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": None}]), "ci-unknown")
+
+    def test_status_context_with_an_unknown_state_is_refused(self):
+        for record in ({"__typename": "StatusContext", "state": "WEIRD"}, {"__typename": "StatusContext"},
+                       {"__typename": "StatusContext", "state": None}):
+            self.assertRefuses(pr(statusCheckRollup=[record]), "ci-unknown")
+
+    def test_status_context_states_are_reported(self):
+        self.assertRefuses(pr(statusCheckRollup=[{"__typename": "StatusContext", "state": "FAILURE"}]), "ci-red")
+        self.assertRefuses(pr(statusCheckRollup=[{"__typename": "StatusContext", "state": "PENDING"}]), "ci-pending")
+
+    def test_real_check_run_and_status_context_shapes_merge_when_green(self):
+        rollup = [
+            {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "SUCCESS", "workflowName": "ci"},
+            {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "NEUTRAL"},
+            {"__typename": "CheckRun", "name": "docs", "status": "COMPLETED", "conclusion": "SKIPPED"},
+            {"__typename": "StatusContext", "context": "ci/legacy", "state": "SUCCESS", "targetUrl": "https://example.com"},
+        ]
+        self.assertMerges(pr(statusCheckRollup=rollup))
+
+    def test_cancelled_and_timed_out_checks_are_red(self):
+        for conclusion in ("CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"):
+            self.assertRefuses(pr(statusCheckRollup=[{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": conclusion}]), "ci-red")
+
+    def test_queued_check_run_is_pending(self):
+        self.assertRefuses(pr(statusCheckRollup=[{"__typename": "CheckRun", "status": "QUEUED", "conclusion": None}]), "ci-pending")
+
+    def test_marker_after_an_unclosed_fence_is_not_a_footer(self):
+        self.assertRefuses(pr(body="Closes #12\n\n```\n\n" + MARK["Claude"] + "\n"), "body-footer")
+
+    def test_verdict_after_an_unclosed_fence_does_not_approve(self):
+        r = agent_review("Codex")
+        r["body"] = "LGTM\n\n~~~\nVerdict: approve\n" + MARK["Codex"] + "\n"
+        self.assertRefuses(pr(reviews=[r]), "no-review")
+
+    def test_mismatched_or_short_fence_closers_do_not_close(self):
+        openers_closers = [("```", "~~~"), ("~~~", "```"), ("````", "```"), ("```", "``"), ("```", "```js")]
+        for opener, closer in openers_closers:
+            body = f"Closes #12\n\n{opener}\n{closer}\n\n" + MARK["Claude"] + "\n"
+            self.assertRefuses(pr(body=body), "body-footer")
+
+    def test_longer_or_matching_fence_closers_close(self):
+        for opener, closer in (("```", "````"), ("~~~~", "~~~~~"), ("```", "```")):
+            body = f"Closes #12\n\n{opener}\ncode\n{closer}\n\n" + MARK["Claude"] + "\n"
+            self.assertMerges(pr(body=body))
+
+    def test_footer_after_a_four_space_indented_fence_line_still_counts(self):
+        self.assertMerges(pr(body="Closes #12\n\n    ```\n\n" + MARK["Claude"] + "\n"))
+
+    def test_closes_example_in_a_fence_does_not_close_the_issue(self):
+        for fenced in ("```\nCloses #12\n```", "~~~\nFixes #3\n~~~"):
+            self.assertRefuses(pr(body=f"Example:\n\n{fenced}\n\n" + MARK["Claude"] + "\n"), "body-closes")
+
+    def test_closes_example_in_an_unclosed_fence_does_not_close_the_issue(self):
+        self.assertRefuses(pr(body="```\nCloses #12\n\n" + MARK["Claude"] + "\n"), "body-closes", "body-footer")
+
+    def test_closes_example_in_a_quote_or_code_does_not_close_the_issue(self):
+        for example in ("> Closes #12", "  > Resolves #12", "`Closes #12`", "    Fixes #12"):
+            self.assertRefuses(pr(body=f"Use:\n\n{example}\n\n" + MARK["Claude"] + "\n"), "body-closes")
+
+    def test_closes_example_in_a_multi_backtick_or_multiline_code_span_does_not_close_the_issue(self):
+        for example in ("``Closes #12``", "```Closes #12```", "`Use\nCloses #12`", "``a ` b\nFixes #12 ``"):
+            self.assertRefuses(pr(body=f"Use {example} here.\n\n" + MARK["Claude"] + "\n"), "body-closes")
+
+    def test_closes_in_a_lazy_blockquote_continuation_does_not_close_the_issue(self):
+        self.assertRefuses(pr(body="> Example:\nCloses #12\n\n" + MARK["Claude"] + "\n"), "body-closes")
+
+    def test_closes_after_a_blank_line_ends_a_quote_and_counts(self):
+        self.assertMerges(pr(body="> Example:\n> text\n\nCloses #12\n\n" + MARK["Claude"] + "\n"))
+
+    def test_closes_after_an_unmatched_or_separate_code_span_counts(self):
+        for body in ("`a\n\nCloses #12 `b`", "``a` and Closes #12", "`code` then Closes #12"):
+            self.assertMerges(pr(body=body + "\n\n" + MARK["Claude"] + "\n"))
+
+    def test_prose_closing_instructions_still_close_the_issue(self):
+        for line in ("Closes #12", "This also fixes #12.", "Resolves #12 and `code`", "- Closes #12"):
+            self.assertMerges(pr(body=f"{line}\n\n" + MARK["Claude"] + "\n"))
+
+    def test_closes_after_a_closed_fence_counts(self):
+        self.assertMerges(pr(body="```\ncode\n```\n\nCloses #12\n\n" + MARK["Claude"] + "\n"))
+
+    def test_ios_feature_presentation_files_are_visual(self):
+        base = "ios/StationToStation/Features/"
+        for name in ("Gig/CheckInDialog.swift", "Contacts/MediaOfferAlert.swift", "Contacts/FriendsView.swift",
+                     "Planning/AddGigSheet.swift", "GigMedia/NightGrid.swift", "GigMedia/MediaPicker.swift",
+                     "GigMedia/MediaWindow.swift", "Gig/NightNotes.swift", "Gig/LogEditor.swift",
+                     "Gig/GigDeleteAlert.swift", "Contacts/PeopleRails.swift", "Contacts/MaybeLines.swift",
+                     "Planning/JoinGigButton.swift", "Gossip/GossipPresenceRow.swift", "Settings/SplashView.swift"):
+            self.assertRefuses(pr(files=[{"path": base + name}]), "screenshot")
+
+    def test_ios_feature_controllers_models_and_tests_are_not_visual(self):
+        for path in ("ios/StationToStation/Features/Gig/GigController.swift", "ios/StationToStation/Features/StateHost.swift",
+                     "ios/StationToStation/Features/Planning/Line.swift",
+                     "ios/StationToStationTests/Features/GigControllerTests.swift",
+                     "ios/StationToStationTests/Features/FakeState.swift",
+                     "ios/StationToStationTests/Features/Gig/CheckInDialogTests.swift"):
+            self.assertMerges(pr(files=[{"path": path}]))
+
     def test_every_failed_condition_is_listed_at_once(self):
         self.assertRefuses(
             pr(isDraft=True, mergeable="CONFLICTING", reviews=[],

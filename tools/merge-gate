@@ -29,9 +29,17 @@ import subprocess
 import sys
 
 # Paths a user sees on screen; touching one makes a PR visual. fnmatch's `*` crosses `/`.
-VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"]
+# iOS Features hold controllers and models beside views, so only presentation filenames count.
+VISUAL_PATHS = ["android/*/ui/*", "android/*/res/*", "ios/*/UI/*"] + [
+    f"ios/StationToStation/Features/*/*{suffix}.swift"
+    for suffix in ("View", "Sheet", "Dialog", "Alert", "Picker", "Window", "Grid", "Rails", "Lines",
+                   "Notes", "Editor", "Row", "Button")]
 BOT_AUTHORS = {"app/dependabot": "dependabot", "dependabot[bot]": "dependabot"}
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+RED = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
+CHECK_PENDING = {"QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"}
+STATUS_PENDING = {"PENDING", "EXPECTED"}
+STATUS_RED = {"FAILURE", "ERROR"}
 OWNER = "magnus-encoded"
 # A whole line, from column 0.
 TOOL_MARKERS = [("claude", re.compile(r"(?:🤖 )?Generated with \[Claude Code\](?:\(\S+\))?")),
@@ -39,6 +47,10 @@ TOOL_MARKERS = [("claude", re.compile(r"(?:🤖 )?Generated with \[Claude Code\]
 CO_AUTHOR = re.compile(r"^Co-Authored-By:.*\b(claude|codex)\b", re.I | re.M)
 QUOTE = re.compile(r"^\s*>.*$", re.M)
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#\d+", re.I)
+FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE = re.compile(r"^ {0,3}(`{3,}|~{3,})\s*$")
+# A code span: a backtick run closed by a run of equal length, within one paragraph.
+INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)", re.S)
 SCREENSHOT = re.compile(r"!\[[^\]]*\]\([^)]+\)|https?://\S+\.(?:png|jpe?g|gif|webp)\b", re.I)
 # Marker text in any position; an owner approval containing it is never taken as human.
 MARKER_TEXT = [("claude", re.compile(r"Generated with \[Claude Code\]", re.I)),
@@ -50,19 +62,73 @@ def mentions_marker(text):
     return any(m.search(text or "") for _, m in MARKER_TEXT)
 
 
+def fenced_lines(lines):
+    """(flags, open_at_end): flags[i] is True for a fence delimiter or a line inside a fence.
+
+    A fence opens on 3+ backticks or tildes (up to 3 spaces of indent) and closes only on
+    the same character, at least as many, with nothing else on the line. An unclosed fence
+    runs to the end of the text.
+    """
+    flags, fence = [], None
+    for line in lines:
+        if fence is None:
+            m = FENCE_OPEN.match(line)
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+                flags.append(True)
+            else:
+                flags.append(False)
+            continue
+        flags.append(True)
+        m = FENCE_CLOSE.match(line)
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            fence = None
+    return flags, fence is not None
+
+
 def final_paragraph(text):
     """Lines of the trailing block of non-blank lines after the last fence line.
 
     Nothing before a fence line counts, so what sits inside or around fences never
-    matters.
+    matters; text after an unclosed fence is inside it, so nothing counts.
     """
     lines = (text or "").rstrip().splitlines()
-    fences = [i for i, l in enumerate(lines) if l.lstrip().startswith(("```", "~~~"))]
+    flags, unclosed = fenced_lines(lines)
+    if unclosed:
+        return []
+    fences = [i for i, f in enumerate(flags) if f]
     lines = lines[fences[-1] + 1:] if fences else lines
     start = len(lines)
     while start > 0 and lines[start - 1].strip():
         start -= 1
     return lines[start:]
+
+
+def closing_prose(text):
+    """The text with fenced blocks, indented code, quotes and code spans removed.
+
+    A quote runs through its lazy continuation lines to the next blank line; a code span
+    may cross lines but not a blank one.
+    """
+    lines = (text or "").splitlines()
+    flags, _ = fenced_lines(lines)
+    out, prev_blank, in_indented, in_quote = [], True, False, False
+    for line, fenced in zip(lines, flags):
+        if fenced:
+            in_indented = in_quote = prev_blank = False
+            continue
+        blank = not line.strip()
+        indented = line.startswith(("    ", "\t")) and not blank
+        in_indented = indented and (prev_blank or in_indented)
+        prev_blank = blank
+        if QUOTE.match(line):
+            in_quote = True
+        elif blank:
+            in_quote = False
+        if in_indented or in_quote:
+            continue
+        out.append(line)
+    return INLINE_CODE.sub("", "\n".join(out))
 
 
 def tools_of(text):
@@ -74,16 +140,41 @@ def commit_tools(commits):
     return {m.group(1).lower() for c in commits for m in CO_AUTHOR.finditer(c.get("messageBody") or "")}
 
 
+def check_state(c):
+    """ok, pending, red or unknown for one rollup record; anything not recognised is unknown."""
+    if not isinstance(c, dict):
+        return "unknown"
+    kind = c.get("__typename")
+    if kind == "StatusContext" or (kind is None and "state" in c and "status" not in c):
+        state = c.get("state")
+        if state == "SUCCESS":
+            return "ok"
+        if state in STATUS_PENDING:
+            return "pending"
+        return "red" if state in STATUS_RED else "unknown"
+    if kind not in (None, "CheckRun"):
+        return "unknown"
+    status, conclusion = c.get("status"), c.get("conclusion")
+    if status in CHECK_PENDING:
+        return "pending"
+    if status != "COMPLETED":
+        return "unknown"
+    if conclusion in GREEN:
+        return "ok"
+    return "red" if conclusion in RED else "unknown"
+
+
 def ci_failures(checks):
     out = []
     if not checks:
         out.append("no-ci: no checks reported")
-    # CheckRuns carry status/conclusion; commit statuses carry state.
-    if any(c.get("status", "COMPLETED") != "COMPLETED" or c.get("state") in ("PENDING", "EXPECTED") for c in checks):
+    states = {check_state(c) for c in checks}
+    if "pending" in states:
         out.append("ci-pending: checks still running")
-    if any((c.get("conclusion") and c["conclusion"] not in GREEN) or c.get("state") in ("FAILURE", "ERROR")
-           for c in checks):
+    if "red" in states:
         out.append("ci-red: a check failed")
+    if "unknown" in states:
+        out.append("ci-unknown: a check has an incomplete or unrecognised result")
     return out
 
 
@@ -149,7 +240,7 @@ def failures(pr):
     if not bot:
         if not body_tools:
             out.append("body-footer: body has no author-tool footer line")
-        if not CLOSES.search(pr["body"] or ""):
+        if not CLOSES.search(closing_prose(pr["body"])):
             out.append("body-closes: body has no `Closes #n` line")
 
     latest = latest_reviews(pr["reviews"])
