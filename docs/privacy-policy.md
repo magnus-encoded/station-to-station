@@ -151,7 +151,8 @@ The durable store has a target of 20,000 facts. Above it, strangers' facts can b
 removed: expired ones first, then oldest first. Your own facts and those whose signer
 is recognised as a contact are protected and may take the store above that target.
 Kept facts survive the end of the night's relay period. On Android, the entire Gossip
-store is excluded from phone backups.
+store is excluded from phone backups. On iPhone, the Gossip ledger is kept in
+Application Support and can be included in iCloud backup when you have backups turned on.
 
 Gossip runs in the background while you are checked in. On Android a notification says
 so for as long as it runs, and has a Stop button. It ends on its own 30 minutes after you
