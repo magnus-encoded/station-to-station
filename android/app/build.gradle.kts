@@ -236,7 +236,7 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.19.0")
     // The launch splash, held until the timeline is ready (see MainActivity.onCreate).
-    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     // @Preview and the renderer behind it. The annotation ships in the main artifact
@@ -246,10 +246,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.2")
+    implementation("androidx.navigation:navigation-compose:2.10.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.datastore:datastore-preferences:1.3.0")
     // Phone cameras record orientation in EXIF rather than rotating the pixels,
     // so gallery photos need it applied before they are shown or uploaded.
     implementation("androidx.exifinterface:exifinterface:1.4.2")
