@@ -25,7 +25,7 @@ internal object DebugTelemetry {
     private var provider: SdkTracerProvider? = null
     private var sdk: OpenTelemetrySdk? = null
     private var currentScreen: Span? = null
-    private var screenName = "unknown"
+    @Volatile private var screenName = "unknown"
     private val handler = Handler(Looper.getMainLooper())
     @Volatile private var foreground = false
     @Volatile private var lastBeat = SystemClock.elapsedRealtime()
@@ -45,7 +45,7 @@ internal object DebugTelemetry {
         }.invokeOnCompletion { startup.end() }
         activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                screen(screenName)
+                if (screenName != "unknown") screen(screenName)
                 foreground = true
                 lastBeat = SystemClock.elapsedRealtime()
                 val operations = mutableMapOf<String, Span>()
@@ -156,5 +156,5 @@ internal object DebugTelemetry {
     }
 
     private val screens = setOf("splash", "timeline", "event", "import", "exchange", "settings",
-        "programme", "friend", "friends", "setlists", "search", "confirm", "handover", "ble-probe")
+        "programme", "friend", "friends", "setlists", "search", "confirm", "handover", "bleprobe")
 }
