@@ -17,6 +17,8 @@ def summarize(text):
     malformed = 0
     builds = set()
     for line in text.splitlines():
+        if not line.strip():
+            continue
         try:
             for resource in json.loads(line)["resourceSpans"]:
                 attributes = {a["key"]: next(iter(a["value"].values())) for a in resource.get("resource", {}).get("attributes", [])}
@@ -77,7 +79,7 @@ def collect(serial):
     prefix = ["adb"] + (["-s", serial] if serial else [])
     chunks = []
     for filename in ("spans.2.jsonl", "spans.1.jsonl", "spans.jsonl"):
-        result = subprocess.run(prefix + ["exec-out", "run-as", PACKAGE, "cat", "no_backup/telemetry/" + filename],
+        result = subprocess.run(prefix + ["shell", "-T", "run-as", PACKAGE, "cat", "no_backup/telemetry/" + filename],
                                 capture_output=True, timeout=20)
         if result.returncode == 0:
             chunks.append(result.stdout.decode("utf-8", errors="replace"))

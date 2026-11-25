@@ -14,7 +14,7 @@ def batch(name="feature.loading", attrs=None, span_id="1", ms=2500):
 class ReportTest(unittest.TestCase):
     def test_duplicates_and_partial_batches_do_not_inflate_loads(self):
         line = batch(attrs={"feature.name": "search", "outcome": "settled"})
-        report = summarize(line + "\n" + line + "\n{")
+        report = summarize(line + "\n\n" + line + "\n{")
         self.assertIn("Unique spans: 1", report)
         self.assertIn("ignored: 1", report)
         self.assertIn("search: 1/1 settled loads", report)
