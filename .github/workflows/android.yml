@@ -50,6 +50,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Test telemetry quality report
+        run: python3 -m unittest discover -s tools/telemetry -v
+
       - name: Run unit tests
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest

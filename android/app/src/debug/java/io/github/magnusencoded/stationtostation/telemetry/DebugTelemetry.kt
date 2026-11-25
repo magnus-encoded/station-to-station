@@ -113,6 +113,7 @@ internal object DebugTelemetry {
                 AttributeKey.stringKey("service.version"), BuildConfig.VERSION_NAME,
                 AttributeKey.stringKey("build.sha"), BuildConfig.GIT_SHA,
                 AttributeKey.stringKey("build.type"), "debug",
+                AttributeKey.stringKey("service.instance.id"), java.util.UUID.randomUUID().toString(),
             )))
             .addSpanProcessor(BatchSpanProcessor.builder(
                 LocalSpanExporter(activity.noBackupFilesDir.resolve("telemetry"))
