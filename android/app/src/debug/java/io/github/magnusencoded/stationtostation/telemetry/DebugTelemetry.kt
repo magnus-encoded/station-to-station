@@ -49,16 +49,21 @@ internal object DebugTelemetry {
                 foreground = true
                 lastBeat = SystemClock.elapsedRealtime()
                 val operations = mutableMapOf<String, Span>()
-                var hadError = false
+                var previousErrors = emptySet<String>()
                 try {
                     model.state.collect { state ->
-                        val error = state.error != null || state.coverUploadError != null || state.handover.error != null
-                        if (error && !hadError) {
+                        val errors = buildSet {
+                            if (state.error != null) add("app")
+                            if (state.coverUploadError != null) add("cover_upload")
+                            if (state.handover.error != null) add("handover")
+                        }
+                        for (source in errors - previousErrors) {
                             tracer().spanBuilder("feature.error")
                                 .setAttribute("screen.name", screenName)
+                                .setAttribute("error.source", source)
                                 .startSpan().also { it.setStatus(StatusCode.ERROR); it.end() }
                         }
-                        hadError = error
+                        previousErrors = errors
                         val busy = mapOf(
                             "search" to state.searchLoading,
                             "setlists" to state.setlistsLoading,

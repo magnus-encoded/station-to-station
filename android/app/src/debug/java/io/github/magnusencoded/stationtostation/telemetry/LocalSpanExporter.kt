@@ -53,5 +53,5 @@ internal class LocalSpanExporter(private val directory: File) : SpanExporter {
     private fun attribute(key: String, value: Any) = JSONObject().put("key", key).put("value",
         JSONObject().put(if (value is Long) "intValue" else "stringValue", value.toString()))
 
-    private val allowed = setOf("screen.name", "feature.name", "outcome", "stall.ms")
+    private val allowed = setOf("screen.name", "feature.name", "outcome", "stall.ms", "error.source")
 }
