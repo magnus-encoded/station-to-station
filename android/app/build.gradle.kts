@@ -231,6 +231,7 @@ kotlin {
 }
 
 dependencies {
+    debugImplementation("io.opentelemetry:opentelemetry-sdk:1.60.1")
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
 
@@ -272,6 +273,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-nearby:19.5.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

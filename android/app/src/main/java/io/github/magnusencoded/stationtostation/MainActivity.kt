@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
             !viewModel.state.value.launched && System.currentTimeMillis() - splashFrom < SPLASH_CAP_MS
         }
         super.onCreate(savedInstanceState)
+        io.github.magnusencoded.stationtostation.telemetry.DebugTelemetry.observe(this, viewModel)
         handleAuthIntent(intent)
         handleTicketIntent(intent)
         handleHandoverDebugIntent(intent)
@@ -222,6 +223,11 @@ fun AppTheme(content: @Composable () -> Unit) {
 @Composable
 fun AppNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
+    LaunchedEffect(navController) {
+        navController.currentBackStackEntryFlow.collect { entry ->
+            io.github.magnusencoded.stationtostation.telemetry.DebugTelemetry.screen(entry.destination.route)
+        }
+    }
     // setlist.fm's automatic checks for local Gigs run while the app is in the
     // foreground and only then (#531): at launch, on coming back, and on their timer.
     LifecycleStartEffect(Unit) {
