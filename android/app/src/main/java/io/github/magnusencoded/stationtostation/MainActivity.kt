@@ -236,18 +236,14 @@ fun AppNavigation(viewModel: AppViewModel) {
         .collectAsStateWithLifecycle(viewModel.state.value.let { it.launched to it.onboarded })
     if (!launch.first) return
     val startDestination = remember { if (launch.second) "timeline" else "splash" }
-    // A handover can begin from outside any screen: the QR is read by the phone's camera
-    // app, which opens the deep link, which starts the receiving side. Whatever was on
-    // screen, that is the thing to be looking at.
-    //
-    // Remembered, because mapping in the composition builds a new Flow on every
-    // recomposition — each one restarting the collection from null, which flaps the
-    // LaunchedEffect key below and re-navigates. launchSingleTop hid it; it was never
-    // the guard.
+    // A code read elsewhere can start receiving before this screen opens. Replacing
+    // an active handover entry disposes its screen and closes its listening socket.
     val handoverRole by remember(viewModel) { viewModel.state.map { it.handover.role } }
         .collectAsStateWithLifecycle(null)
     LaunchedEffect(handoverRole) {
-        if (handoverRole != null) navController.navigate("handover") { launchSingleTop = true }
+        if (handoverRole != null && navController.currentDestination?.route != "handover") {
+            navController.navigate("handover") { launchSingleTop = true }
+        }
     }
     // Every move follows the gesture that caused it: going deeper comes in from the
     // right while the screen behind it eases left, and coming back reverses exactly
