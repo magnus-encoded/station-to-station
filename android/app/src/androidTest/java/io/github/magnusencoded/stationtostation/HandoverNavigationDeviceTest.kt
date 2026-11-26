@@ -6,15 +6,17 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.Assert.*
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Uses an onboarded debug install; offers Nights only and closes before any receiver joins. */
+/** An onboarded install reaches Settings without authoring any records for the fixture. */
 @RunWith(AndroidJUnit4::class)
 class HandoverNavigationDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
+    private val codeDescription = "The code the new phone reads"
 
     @Test fun startingASenderKeepsItsScreenAndOffersACode() {
         val settings = Intent(Intent.ACTION_VIEW, Uri.parse("station-to-station://settings"))
@@ -24,34 +26,37 @@ class HandoverNavigationDeviceTest {
             click("Move to a new phone")
             click("Your nights")
             click("Copy")
-            awaitNode("The code the new phone reads")
+            waitUntil("sender offers a code") {
+                val root = instrumentation.uiAutomation.rootInActiveWindow
+                if (find(root, "Nothing moved") != null) fail("Starting the sender immediately showed Nothing moved")
+                find(root, codeDescription) != null
+            }
+            val stableUntil = SystemClock.uptimeMillis() + 1_000
+            while (SystemClock.uptimeMillis() < stableUntil) {
+                assertNotNull("The sender must keep its code visible", find(instrumentation.uiAutomation.rootInActiveWindow, codeDescription))
+                SystemClock.sleep(50)
+            }
         } finally {
             context.startActivity(settings)
-        }
-    }
-
-    private fun click(label: String) {
-        val deadline = SystemClock.uptimeMillis() + 8_000
-        while (SystemClock.uptimeMillis() < deadline) {
-            var target = find(instrumentation.uiAutomation.rootInActiveWindow, label)
-            while (target != null && !target.isClickable) target = target.parent
-            if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
-            SystemClock.sleep(50)
-        }
-        error("Control did not become clickable: $label")
-    }
-
-    private fun awaitNode(label: String): AccessibilityNodeInfo {
-        val deadline = SystemClock.uptimeMillis() + 8_000
-        while (SystemClock.uptimeMillis() < deadline) {
-            val root = instrumentation.uiAutomation.rootInActiveWindow
-            find(root, label)?.let { return it }
-            if (label == "The code the new phone reads" && find(root, "Nothing moved") != null) {
-                fail("Starting the sender immediately showed Nothing moved")
+            waitUntil("leaving the sender reaches Settings") {
+                find(instrumentation.uiAutomation.rootInActiveWindow, "Settings") != null
             }
+        }
+    }
+
+    private fun click(label: String) = waitUntil("clickable $label") {
+        var target = find(instrumentation.uiAutomation.rootInActiveWindow, label)
+        while (target != null && !target.isClickable) target = target.parent
+        target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun waitUntil(description: String, ready: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + 8_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (ready()) return
             SystemClock.sleep(50)
         }
-        error("Did not reach $label; starting a transfer must keep the sender alive")
+        fail("Did not reach $description")
     }
 
     private fun find(node: AccessibilityNodeInfo?, label: String): AccessibilityNodeInfo? {
