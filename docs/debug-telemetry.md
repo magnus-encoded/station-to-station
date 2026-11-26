@@ -34,10 +34,11 @@ never interrupt the app. No network exporter, backend or additional permission i
 With the Pixel connected through adb:
 
 ```sh
-python3 tools/telemetry/quality_report.py --output /tmp/station-quality.md
+python3 tools/telemetry/quality_report.py --model Pixel_11_Pro --output /tmp/station-quality.md
 ```
 
-Use `--serial HOST:PORT` if multiple devices are connected. The tool reads only the
+Use `--model Pixel_11_Pro` to follow that phone across wireless port changes, or
+`--serial HOST:PORT` for an exact device. Model selection refuses missing or ambiguous targets. The tool reads only the
 telemetry files using debug `run-as`, deduplicates span IDs, tolerates an incomplete last
 batch and atomically updates a Markdown report. A disconnected device makes collection
 fail and preserves the previous report; check the report's generated and latest-trace times.

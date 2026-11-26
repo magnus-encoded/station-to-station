@@ -21,20 +21,24 @@ class HandoverNavigationDeviceTest {
             .setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(settings)
         try {
-            click(awaitNode("Move to a new phone"))
-            click(awaitNode("Your nights"))
-            click(awaitNode("Copy"))
+            click("Move to a new phone")
+            click("Your nights")
+            click("Copy")
             awaitNode("The code the new phone reads")
         } finally {
             context.startActivity(settings)
         }
     }
 
-    private fun click(node: AccessibilityNodeInfo) {
-        var target = node
-        while (!target.isClickable) target = target.parent ?: error("No clickable ancestor")
-        assertTrue("Control must be enabled", target.isEnabled)
-        assertTrue("Control must accept its click", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+    private fun click(label: String) {
+        val deadline = SystemClock.uptimeMillis() + 8_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            var target = find(instrumentation.uiAutomation.rootInActiveWindow, label)
+            while (target != null && !target.isClickable) target = target.parent
+            if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            SystemClock.sleep(50)
+        }
+        error("Control did not become clickable: $label")
     }
 
     private fun awaitNode(label: String): AccessibilityNodeInfo {

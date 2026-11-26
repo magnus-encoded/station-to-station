@@ -75,6 +75,14 @@ def summarize(text):
     return "\n".join(lines) + "\n"
 
 
+def select_device(model, inventory):
+    rows = [line.split() for line in inventory.splitlines()]
+    matches = [row[0] for row in rows if len(row) > 1 and row[1] == "device" and "model:" + model in row]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one connected {model}, found {len(matches)}")
+    return matches[0]
+
+
 def collect(serial):
     prefix = ["adb"] + (["-s", serial] if serial else [])
     chunks = []
@@ -90,11 +98,17 @@ def collect(serial):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--serial")
+    devices = parser.add_mutually_exclusive_group()
+    devices.add_argument("--serial")
+    devices.add_argument("--model", help="Select the single connected device with this adb model")
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    text = args.input.read_text() if args.input else collect(args.serial)
+    serial = args.serial
+    if args.model and not args.input:
+        inventory = subprocess.check_output(["adb", "devices", "-l"], text=True, timeout=10)
+        serial = select_device(args.model, inventory)
+    text = args.input.read_text() if args.input else collect(serial)
     report = summarize(text)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(".tmp")

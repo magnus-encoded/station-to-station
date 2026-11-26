@@ -1,6 +1,6 @@
 import json
 import unittest
-from quality_report import summarize
+from quality_report import summarize, select_device
 
 
 def batch(name="feature.loading", attrs=None, span_id="1", ms=2500):
@@ -12,6 +12,17 @@ def batch(name="feature.loading", attrs=None, span_id="1", ms=2500):
 
 
 class ReportTest(unittest.TestCase):
+    def test_model_selection_follows_wireless_port_changes_with_two_phones(self):
+        inventory = "old:123    device model:Pixel_7_Pro\nnew:456\tdevice model:Pixel_11_Pro\n"
+        self.assertEqual("new:456", select_device("Pixel_11_Pro", inventory))
+        self.assertEqual("new:789", select_device("Pixel_11_Pro", inventory.replace("new:456", "new:789")))
+
+    def test_model_selection_rejects_missing_or_ambiguous_targets(self):
+        with self.assertRaises(RuntimeError):
+            select_device("Pixel_11_Pro", "")
+        with self.assertRaises(RuntimeError):
+            select_device("Pixel_11_Pro", "a\tdevice model:Pixel_11_Pro\nb\tdevice model:Pixel_11_Pro\n")
+
     def test_duplicates_and_partial_batches_do_not_inflate_loads(self):
         line = batch(attrs={"feature.name": "search", "outcome": "settled"})
         report = summarize(line + "\n\n" + line + "\n{")
