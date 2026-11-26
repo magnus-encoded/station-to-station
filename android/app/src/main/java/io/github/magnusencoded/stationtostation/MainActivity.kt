@@ -253,7 +253,9 @@ fun AppNavigation(viewModel: AppViewModel) {
     val handoverRole by remember(viewModel) { viewModel.state.map { it.handover.role } }
         .collectAsStateWithLifecycle(null)
     LaunchedEffect(handoverRole) {
-        if (handoverRole != null) navController.navigate("handover") { launchSingleTop = true }
+        if (handoverRole != null && navController.currentDestination?.route != "handover") {
+            navController.navigate("handover") { launchSingleTop = true }
+        }
     }
     // Every move follows the gesture that caused it: going deeper comes in from the
     // right while the screen behind it eases left, and coming back reverses exactly
