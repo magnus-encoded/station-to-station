@@ -16,6 +16,18 @@ so, before any feature, and the fuller account has a **Privacy.** paragraph.
 Every version listed under "What has changed" in the
 [privacy policy](docs/privacy-policy.md#what-has-changed) is checked for this.
 
+## 1.12.3 — 2026-11-26
+
+<!-- play -->
+Fix: on Android, Move to a new phone keeps the transfer open when you tap Copy, so the new phone can read its code and join.
+<!-- /play -->
+
+**Fixes.** Starting an Android phone transfer keeps its current screen and
+connection open while the new phone reads the code. Starting the transfer could
+close its own connection and show “Nothing moved” before the new phone joined.
+The old phone's records stay in place. Account transfer remains a separate,
+explicit choice. iPhone behavior is unchanged.
+
 ## 1.12.2 — 2026-11-18
 
 <!-- play -->
